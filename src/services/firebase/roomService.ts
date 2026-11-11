@@ -78,12 +78,15 @@ export async function createRoom(input: CreateRoomInput): Promise<string> {
   const user = currentUser()
   const roomId = newRoomId()
   const hostUid = user.uid
+  if (input.type === 'fixed' && user.isAnonymous) {
+    throw new Error('Sabit oda oluşturmak için e-posta ve şifreyle giriş yapın.')
+  }
 
   try {
     if (input.type === 'fixed') {
       await saveFixedRoom(roomId, name, [hostUid], false)
     }
-    await writeRoomAccessMirror(roomId, [hostUid])
+    await writeRoomAccessMirror(roomId, [hostUid], input.type)
     await scheduleRoomHostDisconnect(roomId, input.type)
     await createRoomSessionMetadata(roomId, {
       type: input.type,
@@ -107,7 +110,7 @@ export async function createRoom(input: CreateRoomInput): Promise<string> {
 async function openFixedRoomForHost(roomId: string, hostUid: string): Promise<RoomSessionMetadata> {
   const members = await readFixedRoomMembers(roomId)
   const memberUids = [...new Set([hostUid, ...members.map((member) => member.uid)])]
-  await writeRoomAccessMirror(roomId, memberUids)
+  await writeRoomAccessMirror(roomId, memberUids, 'fixed')
   await scheduleRoomHostDisconnect(roomId, 'fixed')
   await createRoomSessionMetadata(roomId, {
     type: 'fixed',
@@ -211,11 +214,12 @@ export async function pinRoom(roomId: string): Promise<boolean> {
   if (metadata.hostUid !== user.uid) throw new Error('Yalnızca oda sahibi odayı sabitleyebilir.')
 
   if (metadata.type === 'temporary') {
+    if (user.isAnonymous) throw new Error('Sabit odaya dönüştürmek için e-posta ve şifreyle giriş yapın.')
     if (!metadata.name) throw new Error('Geçici odanın adı bulunamadı.')
     const activeMembers = await readRoomActiveMembers(roomId)
     const memberUids = [...new Set([metadata.hostUid, ...activeMembers.map((member) => member.uid)])]
     await saveFixedRoom(roomId, metadata.name, memberUids, true)
-    await writeRoomAccessMirror(roomId, memberUids)
+    await writeRoomAccessMirror(roomId, memberUids, 'fixed')
     await setRoomSessionType(roomId, 'fixed')
     return true
   }
@@ -246,7 +250,7 @@ export async function authorizeRoomMember(roomId: string, memberUidInput: string
   await authorizeFixedRoomMember(roomId, memberUid)
   const members = await readFixedRoomMembers(roomId)
   const memberUids = [...new Set([metadata.hostUid, ...members.map((member) => member.uid)])]
-  await writeRoomAccessMirror(roomId, memberUids)
+  await writeRoomAccessMirror(roomId, memberUids, 'fixed')
 }
 
 export async function revokeRoomMember(roomId: string, memberUid: string): Promise<void> {
@@ -260,7 +264,7 @@ export async function revokeRoomMember(roomId: string, memberUid: string): Promi
   const remainingUids = [...new Set([metadata.hostUid, ...members
     .map((member) => member.uid)
     .filter((uid) => uid !== memberUid)])]
-  await writeRoomAccessMirror(roomId, remainingUids)
+  await writeRoomAccessMirror(roomId, remainingUids, 'fixed')
 
   await removeRoomMemberActivity(roomId, memberUid)
   await revokeFixedRoomMember(roomId, memberUid)

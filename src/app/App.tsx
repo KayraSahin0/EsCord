@@ -1,5 +1,5 @@
 import { RouterProvider } from 'react-router-dom'
-import { AuthLoadingScreen, AuthMessageScreen, GuestSignInScreen, NicknameSetupScreen } from '../components/auth/AuthScreens'
+import { AuthLoadingScreen, AuthMessageScreen, SignInScreen, NicknameSetupScreen } from '../components/auth/AuthScreens'
 import { useAuthStore } from '../stores/authStore'
 import { router } from './router'
 
@@ -16,7 +16,7 @@ export function App() {
   if (status === 'error') {
     return <AuthMessageScreen action={<button className="auth-submit" onClick={() => void retrySignIn()} type="button">Yeniden dene</button>} message={errorMessage ?? 'Kimlik doğrulama başarısız oldu.'} title="Oturum açılamadı" />
   }
-  if (status === 'signed-out') return <GuestSignInScreen />
+  if (status === 'signed-out') return <SignInScreen errorMessage={errorMessage} />
   if (!nickname) return <NicknameSetupScreen />
 
   return <RouterProvider router={router} />

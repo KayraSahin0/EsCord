@@ -6,9 +6,11 @@ import { Modal } from '../../components/ui/Modal'
 import { useUiStore } from '../../stores/uiStore'
 import { createRoom } from '../../services/firebase/roomService'
 import type { RoomType } from '../../services/firebase/models'
+import { useAuthStore } from '../../stores/authStore'
 
 export function CreateRoomModal() {
   const closeModal = useUiStore((state) => state.closeModal)
+  const isAnonymous = useAuthStore((state) => state.profile?.isAnonymous ?? true)
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [type, setType] = useState<RoomType>('temporary')
@@ -44,10 +46,10 @@ export function CreateRoomModal() {
             <span className="room-type-copy"><strong>Geçici oda</strong><small>Oda kapandığında oturum verileri silinir.</small></span>
             <span className="radio-indicator" />
           </label>
-          <label className={`room-type-option${type === 'fixed' ? ' is-selected' : ''}`}>
-            <input checked={type === 'fixed'} name="room-type" onChange={() => setType('fixed')} type="radio" value="fixed" />
+          <label className={`room-type-option${type === 'fixed' ? ' is-selected' : ''}${isAnonymous ? ' is-disabled' : ''}`}>
+            <input checked={type === 'fixed'} disabled={isAnonymous} name="room-type" onChange={() => setType('fixed')} type="radio" value="fixed" />
             <span className="room-type-icon"><LockKeyhole size={18} /></span>
-            <span className="room-type-copy"><strong>Sabit oda</strong><small>Oda ve yetkilendirilmiş üyeler korunur.</small></span>
+            <span className="room-type-copy"><strong>Sabit oda</strong><small>{isAnonymous ? 'Sabit oda için e-posta ile giriş yap.' : 'Oda ve yetkilendirilmiş üyeler korunur.'}</small></span>
             <span className="room-type-badge"><UsersRound size={12} /> Kalıcı</span>
           </label>
         </div>

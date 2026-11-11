@@ -41,25 +41,48 @@ export function AuthMessageScreen({ title, message, action }: { title: string; m
   )
 }
 
-export function GuestSignInScreen() {
+export function SignInScreen({ errorMessage }: { errorMessage: string | null }) {
   const retrySignIn = useAuthStore((state) => state.retrySignIn)
-  const [isSigningIn, setIsSigningIn] = useState(false)
+  const signInWithEmail = useAuthStore((state) => state.signInWithEmail)
+  const [mode, setMode] = useState<'sign-in' | 'create'>('sign-in')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  async function handleSignIn() {
-    setIsSigningIn(true)
+  async function handleEmailSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    await signInWithEmail(email, password, mode === 'create')
+    setBusy(false)
+  }
+
+  async function handleGuestSignIn() {
+    setBusy(true)
     await retrySignIn()
-    setIsSigningIn(false)
+    setBusy(false)
   }
 
   return (
-    <AuthCard label="Misafir girişi">
-      <div className="auth-state-copy">
+    <AuthCard label="EsCord giriş">
+      <div className="auth-state-copy auth-state-copy--form">
         <span className="auth-state-icon"><UserRound size={20} /></span>
-        <p className="auth-eyebrow">YENİDEN HOŞ GELDİN</p>
-        <h1>Birlikte sohbete dön.</h1>
-        <p>Yeni bir anonim oturum başlatıp devam edebilirsin.</p>
-        <button className="auth-submit" disabled={isSigningIn} onClick={() => void handleSignIn()} type="button">
-          <LogIn size={16} /> {isSigningIn ? 'Bağlanıyor…' : 'Misafir olarak giriş yap'}
+        <p className="auth-eyebrow">ESCORD HESABI</p>
+        <h1>{mode === 'sign-in' ? 'Tekrar hoş geldin.' : 'Hesabını oluştur.'}</h1>
+        <p>{mode === 'sign-in' ? 'E-posta ve şifrenle giriş yap.' : 'E-posta ve şifrenle kalıcı hesabını oluştur.'}</p>
+        <form className="auth-form" onSubmit={(event) => void handleEmailSubmit(event)}>
+          <label htmlFor="auth-email">E-posta</label>
+          <input autoComplete="email" autoFocus id="auth-email" onChange={(event) => setEmail(event.target.value)} required type="email" value={email} />
+          <label htmlFor="auth-password">Şifre</label>
+          <input autoComplete={mode === 'create' ? 'new-password' : 'current-password'} id="auth-password" minLength={6} onChange={(event) => setPassword(event.target.value)} required type="password" value={password} />
+          {errorMessage && <p className="auth-form-error" role="alert">{errorMessage}</p>}
+          <button className="auth-submit" disabled={busy} type="submit"><LogIn size={16} />{busy ? 'İşleniyor…' : mode === 'sign-in' ? 'E-posta ile giriş yap' : 'Hesap oluştur'}</button>
+        </form>
+        <button className="auth-mode-toggle" onClick={() => setMode(mode === 'sign-in' ? 'create' : 'sign-in')} type="button">
+          {mode === 'sign-in' ? 'Hesabın yok mu? Kayıt ol' : 'Zaten hesabın var mı? Giriş yap'}
+        </button>
+        <div className="auth-divider"><span>veya</span></div>
+        <button className="auth-guest-button" disabled={busy} onClick={() => void handleGuestSignIn()} type="button">
+          <UserRound size={16} /> {busy ? 'Bağlanıyor…' : 'Anonim giriş'}
         </button>
       </div>
     </AuthCard>

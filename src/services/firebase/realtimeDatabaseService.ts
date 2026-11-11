@@ -22,6 +22,7 @@ const firebaseDatabase = firebaseApp && firebaseDatabaseURL
 export async function writeRoomAccessMirror(
   roomId: string,
   memberUids: readonly string[],
+  type: RoomType,
 ): Promise<void> {
   try {
     const hostUid = firebaseAuth?.currentUser?.uid
@@ -33,6 +34,7 @@ export async function writeRoomAccessMirror(
     const members = Object.fromEntries(memberUids.map((uid) => [uid, true])) as RoomAccessMirror['members']
     await set(ref(requireFirebaseService(firebaseDatabase, 'realtime-database'), `roomAccess/${roomId}`), {
       hostUid,
+      type,
       members,
     } satisfies RoomAccessMirror)
   } catch (error) {

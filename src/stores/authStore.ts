@@ -3,6 +3,7 @@ import { firebaseAuth, isFirebaseConfigured } from '../services/firebase/app'
 import { getFirebaseErrorMessage } from '../services/firebase/firebaseError'
 import {
   signInAsGuest,
+  signInWithEmail as authenticateEmail,
   signOutCurrentUser,
   subscribeToAuth,
   updateNickname as persistNickname,
@@ -19,6 +20,7 @@ type AuthState = {
   profileSaving: boolean
   initialize: () => () => void
   retrySignIn: () => Promise<void>
+  signInWithEmail: (email: string, password: string, createAccount: boolean) => Promise<boolean>
   saveNickname: (nickname: string) => Promise<boolean>
   signOut: () => Promise<void>
   clearProfileError: () => void
@@ -56,6 +58,16 @@ export const useAuthStore = create<AuthState>((set) => ({
       await signInAsGuest()
     } catch (error) {
       set({ status: 'error', errorMessage: getFirebaseErrorMessage(error, 'auth') })
+    }
+  },
+  signInWithEmail: async (email, password, createAccount) => {
+    set({ status: 'loading', errorMessage: null })
+    try {
+      await authenticateEmail(email.trim(), password, createAccount)
+      return true
+    } catch (error) {
+      set({ status: 'signed-out', errorMessage: getFirebaseErrorMessage(error, 'auth') })
+      return false
     }
   },
   saveNickname: async (nickname) => {

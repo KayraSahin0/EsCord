@@ -1,11 +1,12 @@
 import {
   onAuthStateChanged,
   signInAnonymously,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   signOut,
   updateProfile,
   type Unsubscribe,
   type User,
-  type UserCredential,
 } from '@firebase/auth'
 import { firebaseAuth } from './app'
 import { requireFirebaseService, wrapFirebaseError } from './firebaseError'
@@ -21,7 +22,6 @@ type AuthListener = {
   onError: (error: unknown) => void
 }
 
-let signInPromise: Promise<UserCredential> | null = null
 const signedOutStorageKey = 'escord.auth.signed-out'
 let userSignedOut = readSignedOutPreference()
 
@@ -54,16 +54,6 @@ function toAuthProfile(user: User): AuthProfile {
   }
 }
 
-function startAnonymousSignIn(onError: AuthListener['onError']) {
-  if (signInPromise) return
-
-  signInPromise = signInAnonymously(requireAuth())
-  void signInPromise.catch((error: unknown) => {
-    signInPromise = null
-    onError(wrapFirebaseError('auth', 'anonymous-sign-in', error))
-  })
-}
-
 export function subscribeToAuth(listener: AuthListener): Unsubscribe {
   const auth = requireAuth()
 
@@ -73,12 +63,11 @@ export function subscribeToAuth(listener: AuthListener): Unsubscribe {
       if (user) {
         userSignedOut = false
         writeSignedOutPreference(false)
-        signInPromise = null
         listener.onUser(toAuthProfile(user))
       } else if (userSignedOut) {
         listener.onUser(null)
       } else {
-        startAnonymousSignIn(listener.onError)
+        listener.onUser(null)
       }
     },
     (error) => listener.onError(wrapFirebaseError('auth', 'observe-auth-state', error)),
@@ -88,11 +77,22 @@ export function subscribeToAuth(listener: AuthListener): Unsubscribe {
 export async function signInAsGuest(): Promise<void> {
   userSignedOut = false
   writeSignedOutPreference(false)
-  signInPromise = null
   try {
     await signInAnonymously(requireAuth())
   } catch (error) {
     throw wrapFirebaseError('auth', 'anonymous-sign-in', error)
+  }
+}
+
+export async function signInWithEmail(email: string, password: string, createAccount: boolean): Promise<void> {
+  userSignedOut = false
+  writeSignedOutPreference(false)
+  try {
+    const auth = requireAuth()
+    if (createAccount) await createUserWithEmailAndPassword(auth, email, password)
+    else await signInWithEmailAndPassword(auth, email, password)
+  } catch (error) {
+    throw wrapFirebaseError('auth', createAccount ? 'create-email-account' : 'sign-in-email', error)
   }
 }
 
@@ -112,7 +112,6 @@ export async function updateNickname(nickname: string): Promise<AuthProfile> {
 export async function signOutCurrentUser(): Promise<void> {
   userSignedOut = true
   writeSignedOutPreference(true)
-  signInPromise = null
   try {
     await signOut(requireAuth())
   } catch (error) {

@@ -1,15 +1,18 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { ArrowLeft, Camera, Check, Copy, LockKeyhole, MicOff, Radio, ShieldCheck, UsersRound } from 'lucide-react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { ArrowLeft, Camera, Check, Copy, LockKeyhole, MicOff, Radio, Send, ShieldCheck, UsersRound } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { useAuthStore } from '../../stores/authStore'
 import { useRoomStore } from '../../stores/roomStore'
+import { sendRoomMessage, subscribeToRoomMessages, type ChatMessage } from '../../services/firebase/chatService'
+import { getFirebaseErrorMessage } from '../../services/firebase/firebaseError'
 import { getNicknameInitial } from '../profile/nickname'
 
 export function RoomPage() {
   const { roomId = '' } = useParams()
   const navigate = useNavigate()
   const profile = useAuthStore((state) => state.profile)
+  const isAnonymous = profile?.isAnonymous ?? true
   const room = useRoomStore((state) => state.activeRoom)
   const members = useRoomStore((state) => state.activeMembers)
   const status = useRoomStore((state) => state.activeRoomStatus)
@@ -23,11 +26,37 @@ export function RoomPage() {
   const [memberUid, setMemberUid] = useState('')
   const [actionError, setActionError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [chatState, setChatState] = useState<{ key: string; messages: ChatMessage[] }>({ key: '', messages: [] })
+  const [draft, setDraft] = useState('')
+  const [chatError, setChatError] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
+  const messageEndRef = useRef<HTMLDivElement>(null)
+  const chatRoomKey = room ? `${room.roomId}:${room.metadata.type}` : ''
+  const messages = chatState.key === chatRoomKey ? chatState.messages : []
 
   useEffect(() => {
     void connect(roomId)
     return () => { void disconnect(roomId) }
   }, [connect, disconnect, roomId])
+
+  useEffect(() => {
+    if (!room || room.roomId !== roomId || status !== 'ready') return
+    const roomKey = `${room.roomId}:${room.metadata.type}`
+    return subscribeToRoomMessages(
+      roomId,
+      room.metadata.type,
+      (nextMessages) => setChatState({ key: roomKey, messages: nextMessages }),
+      (message) => setChatState((current) => {
+        const messages = current.key === roomKey ? current.messages : []
+        return current.key === roomKey && messages.some((item) => item.id === message.id)
+          ? current
+          : { key: roomKey, messages: [...messages, message].sort((left, right) => left.createdAt - right.createdAt) }
+      }),
+      (cause) => setChatError(getFirebaseErrorMessage(cause, room.metadata.type === 'fixed' ? 'firestore' : 'realtime-database')),
+    )
+  }, [room, roomId, status])
+
+  useEffect(() => { messageEndRef.current?.scrollIntoView({ block: 'end' }) }, [chatState])
 
   async function leaveRoom() {
     await leave()
@@ -65,6 +94,21 @@ export function RoomPage() {
     }
   }
 
+  async function submitMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!room || sending) return
+    setSending(true)
+    setChatError(null)
+    try {
+      await sendRoomMessage(room.roomId, room.metadata.type, draft)
+      setDraft('')
+    } catch (cause) {
+      setChatError(cause instanceof Error ? cause.message : 'Mesaj gönderilemedi.')
+    } finally {
+      setSending(false)
+    }
+  }
+
   const isHost = room?.metadata.hostUid === profile?.uid
   const title = room?.name ?? 'Oda'
 
@@ -83,7 +127,7 @@ export function RoomPage() {
         </div>
         <div className="room-heading-actions">
           <Button icon={<Copy size={15} />} onClick={() => void copyInvite()} variant="secondary">{copied ? 'Kopyalandı' : 'Davet bağlantısı'}</Button>
-          {isHost && <Button icon={<LockKeyhole size={15} />} onClick={() => void togglePin()} variant="secondary">{room.isPinned ? 'Sabitlemeyi kaldır' : 'Sabitle'}</Button>}
+          {isHost && !isAnonymous && <Button icon={<LockKeyhole size={15} />} onClick={() => void togglePin()} variant="secondary">{room.isPinned ? 'Sabitlemeyi kaldır' : 'Sabitle'}</Button>}
         </div>
       </div>
 
@@ -107,12 +151,27 @@ export function RoomPage() {
             <span className="control-divider" />
             <button className="leave-button" onClick={() => void leaveRoom()} type="button"><ArrowLeft size={16} /><span>Odadan ayrıl</span></button>
           </div>
-          <p className="stage-footnote"><span className="stage-lock"><ShieldCheck size={14} /></span>Bu aşamada yalnızca oda oturumu ve üyeler yönetilir; medya bağlantısı kurulmaz.</p>
+          <p className="stage-footnote"><span className="stage-lock"><ShieldCheck size={14} /></span>Ses ve görüntü bağlantısı henüz etkin değil.</p>
         </section>
 
-        <aside aria-label="Oda bilgileri" className="chat-panel room-info-panel">
-          <div className="chat-panel-heading"><div><h2>Oda bilgileri</h2><span>{room.metadata.type === 'fixed' ? 'Yetkili erişim' : 'Davet koduyla erişim'}</span></div><LockKeyhole size={16} /></div>
-          <div className="room-info-content">
+        <aside aria-label="Oda sohbeti" className="chat-panel">
+          <div className="chat-panel-heading"><div><h2>Sohbet</h2><span>{room.metadata.type === 'fixed' ? 'Son 100 mesaj saklanır' : 'Geçici oda mesajları'}</span></div><LockKeyhole size={16} /></div>
+          <div aria-live="polite" className="chat-message-list" role="log">
+            {messages.length === 0 && <div className="chat-empty-state"><span className="chat-empty-icon"><Send size={19} /></span><strong>Henüz mesaj yok</strong><p>İlk mesajı göndererek sohbeti başlat.</p></div>}
+            {messages.map((message) => <article className={`chat-message${message.senderUid === profile?.uid ? ' chat-message--own' : ''}`} key={message.id}>
+              <div className="chat-message-meta"><strong>{message.senderUid === profile?.uid ? 'Sen' : message.senderNickname}</strong><time dateTime={new Date(message.createdAt).toISOString()}>{message.createdAt ? new Date(message.createdAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : 'şimdi'}</time></div>
+              <p>{message.text}</p>
+            </article>)}
+            <div ref={messageEndRef} />
+          </div>
+          <div className="chat-composer-wrap">
+            {chatError && <p className="auth-form-error" role="alert">{chatError}</p>}
+            <form className="chat-composer" onSubmit={(event) => void submitMessage(event)}>
+              <input aria-label="Mesaj yaz" autoComplete="off" maxLength={1000} onChange={(event) => setDraft(event.target.value)} placeholder="Mesaj yaz…" value={draft} />
+              <button aria-label="Mesaj gönder" className="send-button" disabled={sending || !draft.trim()} type="submit"><Send size={16} /></button>
+            </form>
+          </div>
+          <div className="room-info-content room-info-compact">
             <strong>{title}</strong><code>{roomId}</code>
             <span>{members.length} aktif katılımcı · kapasite 4</span>
             {isHost && room.metadata.type === 'fixed' && <form className="room-member-form" onSubmit={(event) => void addMember(event)}>
@@ -120,13 +179,13 @@ export function RoomPage() {
               <input className="text-input" id="member-uid" onChange={(event) => setMemberUid(event.target.value)} placeholder="Firebase UID" value={memberUid} />
               <Button disabled={!memberUid.trim()} type="submit" variant="secondary">Üyeyi ekle</Button>
             </form>}
-            {(error || actionError) && <p className="auth-form-error" role="alert">{actionError ?? error}</p>}
+            {actionError && <p className="auth-form-error" role="alert">{actionError}</p>}
             <p className="room-info-note"><Check size={14} /> {room.metadata.type === 'fixed' ? 'Sabit oda, host yeniden katılana kadar kapalı kalır.' : 'Geçici oda host ayrılınca kapanır.'}</p>
           </div>
         </aside>
       </div>
 
-      <section className="room-preview-notice"><span className="preview-note-icon"><Camera size={17} /></span><p><strong>Oda yönetimi etkin</strong><span>Mikrofon, kamera, ekran paylaşımı ve sohbet henüz bu aşamanın kapsamında değil.</span></p><span className="preview-note-mark">PHASE 04</span></section>
+      <section className="room-preview-notice"><span className="preview-note-icon"><Camera size={17} /></span><p><strong>Yazılı sohbet etkin</strong><span>Ses, kamera ve ekran paylaşımı sonraki aşamalarda etkinleşecek.</span></p><span className="preview-note-mark">PHASE 05</span></section>
     </div>
   )
 }

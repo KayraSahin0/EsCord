@@ -27,7 +27,19 @@ function readErrorCode(error: unknown): string | null {
 
 function errorMessage(service: FirebaseServiceName, code: string | null): string {
   if (code === 'auth/operation-not-allowed') {
-    return 'Firebase Console’da Anonymous giriş yöntemini etkinleştirin.'
+    return 'Firebase Console’da Anonymous giriş yöntemini etkinleştirin; kullandığınız giriş yönteminin açık olduğunu da kontrol edin.'
+  }
+  if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+    return 'E-posta veya şifre hatalı.'
+  }
+  if (code === 'auth/email-already-in-use') {
+    return 'Bu e-posta adresiyle bir hesap zaten var. Giriş yapmayı deneyin.'
+  }
+  if (code === 'auth/weak-password') {
+    return 'Şifre en az 6 karakter olmalı.'
+  }
+  if (code === 'auth/invalid-email') {
+    return 'Geçerli bir e-posta adresi girin.'
   }
   if (code === 'auth/unauthorized-domain') {
     return 'Bu adres Firebase Authentication yetkili alan adlarında değil.'

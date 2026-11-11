@@ -6,6 +6,10 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function passwordUser() {
+      return signedIn() && request.auth.token.firebase.sign_in_provider == 'password';
+    }
+
     function ownsProfile(uid) {
       return signedIn() && request.auth.uid == uid;
     }
@@ -23,6 +27,51 @@ service cloud.firestore {
     function roomMember(roomId) {
       return signedIn()
         && exists(/databases/$(database)/documents/fixedRooms/$(roomId)/members/$(request.auth.uid));
+    }
+
+    function chatSlotPath(roomId, slot) {
+      return /databases/$(database)/documents/fixedRooms/$(roomId)/messages/$(string(slot));
+    }
+
+    function nextMessageExists(roomId, slot, sequence) {
+      let path = chatSlotPath(roomId, slot);
+      return existsAfter(path)
+        && getAfter(path).data.sequence == sequence
+        && getAfter(path).data.senderUid == request.auth.uid;
+    }
+
+    function validChatMessage(roomId, slotId) {
+      let statePath = /databases/$(database)/documents/fixedRooms/$(roomId)/chatMeta/state;
+      let afterState = getAfter(statePath).data;
+      return request.resource.data.keys().hasOnly(['senderUid', 'senderNickname', 'text', 'sequence', 'slot', 'createdAt'])
+        && request.resource.data.keys().hasAll(['senderUid', 'senderNickname', 'text', 'sequence', 'slot', 'createdAt'])
+        && request.resource.data.senderUid == request.auth.uid
+        && request.resource.data.senderNickname is string
+        && request.resource.data.senderNickname.size() >= 2
+        && request.resource.data.senderNickname.size() <= 24
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 1
+        && request.resource.data.text.size() <= 1000
+        && request.resource.data.sequence is int
+        && request.resource.data.slot == int(slotId)
+        && request.resource.data.slot == (afterState.nextSlot + 99) % 100
+        && request.resource.data.sequence == afterState.sequence
+        && request.resource.data.createdAt == request.time
+        && (exists(statePath)
+          ? (afterState.sequence == get(statePath).data.sequence + 1
+            && afterState.nextSlot == (get(statePath).data.nextSlot + 1) % 100)
+          : (afterState.sequence == 1 && afterState.nextSlot == 1));
+    }
+
+    function validChatState(roomId) {
+      let nextSlot = (request.resource.data.nextSlot + 99) % 100;
+      return request.resource.data.keys().hasOnly(['sequence', 'nextSlot'])
+        && request.resource.data.keys().hasAll(['sequence', 'nextSlot'])
+        && request.resource.data.sequence is int
+        && request.resource.data.nextSlot is int
+        && request.resource.data.nextSlot >= 0
+        && request.resource.data.nextSlot < 100
+        && nextMessageExists(roomId, nextSlot, request.resource.data.sequence);
     }
 
     function validProfile(uid) {
@@ -64,10 +113,12 @@ service cloud.firestore {
       allow get: if roomHost(roomId) || roomMember(roomId);
       allow list: if false;
       allow create: if signedIn()
+        && passwordUser()
         && request.resource.data.hostUid == request.auth.uid
         && validRoom()
         && request.resource.data.createdAt == request.time;
       allow update: if roomHost(roomId)
+        && passwordUser()
         && request.resource.data.hostUid == resource.data.hostUid
         && request.resource.data.createdAt == resource.data.createdAt
         && validRoom();
@@ -77,18 +128,42 @@ service cloud.firestore {
         allow get: if roomHost(roomId) || (signedIn() && request.auth.uid == memberUid);
         allow list: if roomHost(roomId);
         allow create: if roomHostAfter(roomId)
+          && passwordUser()
           && request.resource.data.keys().hasOnly(['uid', 'authorizedBy', 'authorizedAt'])
           && request.resource.data.keys().hasAll(['uid', 'authorizedBy', 'authorizedAt'])
           && request.resource.data.uid == memberUid
           && request.resource.data.authorizedBy == request.auth.uid
           && request.resource.data.authorizedAt == request.time;
         allow update: if roomHost(roomId)
+          && passwordUser()
           && request.resource.data.keys().hasOnly(['uid', 'authorizedBy', 'authorizedAt'])
           && request.resource.data.keys().hasAll(['uid', 'authorizedBy', 'authorizedAt'])
           && request.resource.data.uid == memberUid
           && request.resource.data.authorizedBy == request.auth.uid
           && request.resource.data.authorizedAt == request.time;
         allow delete: if roomHost(roomId);
+      }
+
+      match /chatMeta/state {
+        allow get: if roomHost(roomId) || roomMember(roomId);
+        allow list: if false;
+        allow create: if roomMember(roomId)
+          && request.resource.data.sequence == 1
+          && request.resource.data.nextSlot == 1
+          && validChatState(roomId);
+        allow update: if roomMember(roomId)
+          && request.resource.data.sequence == resource.data.sequence + 1
+          && request.resource.data.nextSlot == (resource.data.nextSlot + 1) % 100
+          && validChatState(roomId);
+        allow delete: if false;
+      }
+
+      match /messages/{slotId} {
+        allow get, list: if roomHost(roomId) || roomMember(roomId);
+        allow create, update: if roomMember(roomId)
+          && slotId.matches('^(?:[0-9]|[1-9][0-9])$')
+          && validChatMessage(roomId, slotId);
+        allow delete: if false;
       }
     }
 
