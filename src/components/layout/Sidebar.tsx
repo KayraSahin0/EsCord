@@ -9,9 +9,12 @@ import {
 } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import { useUiStore } from '../../stores/uiStore'
+import { useAuthStore } from '../../stores/authStore'
+import { getNicknameInitial } from '../../features/profile/nickname'
 
 export function Sidebar() {
   const openModal = useUiStore((state) => state.openModal)
+  const nickname = useAuthStore((state) => state.profile?.nickname ?? 'Misafir')
 
   return (
     <aside className="sidebar">
@@ -54,10 +57,10 @@ export function Sidebar() {
           <Settings2 size={18} /><span>Ayarlar</span>
         </NavLink>
         <div className="sidebar-user">
-          <div className="avatar avatar--you">E</div>
+          <div className="avatar avatar--you">{getNicknameInitial(nickname)}</div>
           <div className="sidebar-user-copy">
-            <strong>Misafir</strong>
-            <span>Profil önizlemesi</span>
+            <strong>{nickname}</strong>
+            <span>Anonim hesap</span>
           </div>
           <span className="online-dot" aria-label="Çevrimiçi" />
         </div>
