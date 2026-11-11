@@ -8,6 +8,7 @@ import {
   type UserCredential,
 } from '@firebase/auth'
 import { firebaseAuth } from './app'
+import { requireFirebaseService, wrapFirebaseError } from './firebaseError'
 
 export type AuthProfile = {
   uid: string
@@ -42,10 +43,7 @@ function writeSignedOutPreference(signedOut: boolean) {
 }
 
 function requireAuth() {
-  if (!firebaseAuth) {
-    throw new Error('Firebase web app yapılandırması eksik.')
-  }
-  return firebaseAuth
+  return requireFirebaseService(firebaseAuth, 'auth')
 }
 
 function toAuthProfile(user: User): AuthProfile {
@@ -62,7 +60,7 @@ function startAnonymousSignIn(onError: AuthListener['onError']) {
   signInPromise = signInAnonymously(requireAuth())
   void signInPromise.catch((error: unknown) => {
     signInPromise = null
-    onError(error)
+    onError(wrapFirebaseError('auth', 'anonymous-sign-in', error))
   })
 }
 
@@ -83,7 +81,7 @@ export function subscribeToAuth(listener: AuthListener): Unsubscribe {
         startAnonymousSignIn(listener.onError)
       }
     },
-    listener.onError,
+    (error) => listener.onError(wrapFirebaseError('auth', 'observe-auth-state', error)),
   )
 }
 
@@ -91,7 +89,11 @@ export async function signInAsGuest(): Promise<void> {
   userSignedOut = false
   writeSignedOutPreference(false)
   signInPromise = null
-  await signInAnonymously(requireAuth())
+  try {
+    await signInAnonymously(requireAuth())
+  } catch (error) {
+    throw wrapFirebaseError('auth', 'anonymous-sign-in', error)
+  }
 }
 
 export async function updateNickname(nickname: string): Promise<AuthProfile> {
@@ -99,8 +101,12 @@ export async function updateNickname(nickname: string): Promise<AuthProfile> {
   const user = auth.currentUser
   if (!user) throw new Error('Aktif kullanıcı oturumu bulunamadı.')
 
-  await updateProfile(user, { displayName: nickname })
-  return toAuthProfile(user)
+  try {
+    await updateProfile(user, { displayName: nickname })
+    return toAuthProfile(user)
+  } catch (error) {
+    throw wrapFirebaseError('auth', 'update-nickname', error)
+  }
 }
 
 export async function signOutCurrentUser(): Promise<void> {
@@ -111,6 +117,6 @@ export async function signOutCurrentUser(): Promise<void> {
     await signOut(requireAuth())
   } catch (error) {
     userSignedOut = false
-    throw error
+    throw wrapFirebaseError('auth', 'sign-out', error)
   }
 }

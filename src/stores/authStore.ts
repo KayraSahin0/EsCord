@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { firebaseAuth, isFirebaseConfigured } from '../services/firebase/app'
+import { getFirebaseErrorMessage } from '../services/firebase/firebaseError'
 import {
   signInAsGuest,
   signOutCurrentUser,
@@ -21,23 +22,6 @@ type AuthState = {
   saveNickname: (nickname: string) => Promise<boolean>
   signOut: () => Promise<void>
   clearProfileError: () => void
-}
-
-function readableAuthError(error: unknown): string {
-  const code = (error as { code?: string })?.code
-  if (code === 'auth/operation-not-allowed') {
-    return 'Firebase Console’da Anonymous giriş yöntemini etkinleştirin.'
-  }
-  if (code === 'auth/unauthorized-domain') {
-    return 'Bu adres Firebase Authentication yetkili alan adlarında değil.'
-  }
-  if (code === 'auth/network-request-failed') {
-    return 'Firebase’e bağlanılamadı. İnternet bağlantınızı kontrol edip tekrar deneyin.'
-  }
-  if (code === 'auth/invalid-api-key') {
-    return 'Firebase Web App API anahtarı geçersiz. Yapılandırmayı kontrol edin.'
-  }
-  return 'Kimlik doğrulama tamamlanamadı. Firebase ayarlarını ve bağlantınızı kontrol edin.'
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -62,7 +46,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         })
       },
       onError: (error) => {
-        set({ status: 'error', errorMessage: readableAuthError(error) })
+        set({ status: 'error', errorMessage: getFirebaseErrorMessage(error, 'auth') })
       },
     })
   },
@@ -71,7 +55,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       await signInAsGuest()
     } catch (error) {
-      set({ status: 'error', errorMessage: readableAuthError(error) })
+      set({ status: 'error', errorMessage: getFirebaseErrorMessage(error, 'auth') })
     }
   },
   saveNickname: async (nickname) => {
@@ -94,7 +78,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       await signOutCurrentUser()
       set({ status: 'signed-out', profile: null })
     } catch (error) {
-      set({ status: 'error', errorMessage: readableAuthError(error) })
+      set({ status: 'error', errorMessage: getFirebaseErrorMessage(error, 'auth') })
     }
   },
   clearProfileError: () => set({ profileError: null }),

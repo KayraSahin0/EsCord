@@ -1,0 +1,24 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "roomAccess": {
+      "$roomId": {
+        ".read": "auth != null && data.child('members').child(auth.uid).val() === true",
+        ".write": "auth != null && ((!data.exists() && newData.child('hostUid').val() === auth.uid && newData.child('members').child(auth.uid).val() === true) || (data.exists() && data.child('hostUid').val() === auth.uid && newData.child('hostUid').val() === data.child('hostUid').val()))",
+        ".validate": "newData.hasChildren(['hostUid', 'members']) && newData.child('hostUid').isString() && newData.child('members').child(newData.child('hostUid').val()).val() === true",
+        "members": {
+          "$memberUid": {
+            ".validate": "newData.val() === true"
+          }
+        }
+      }
+    },
+    "roomSessions": {
+      "$roomId": {
+        ".read": "auth != null && root.child('roomAccess').child($roomId).child('members').child(auth.uid).val() === true",
+        ".write": "auth != null && root.child('roomAccess').child($roomId).child('members').child(auth.uid).val() === true"
+      }
+    }
+  }
+}

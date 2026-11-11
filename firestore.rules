@@ -1,0 +1,91 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function ownsProfile(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function roomHost(roomId) {
+      return signedIn()
+        && get(/databases/$(database)/documents/fixedRooms/$(roomId)).data.hostUid == request.auth.uid;
+    }
+
+    function roomHostAfter(roomId) {
+      return signedIn()
+        && getAfter(/databases/$(database)/documents/fixedRooms/$(roomId)).data.hostUid == request.auth.uid;
+    }
+
+    function roomMember(roomId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/fixedRooms/$(roomId)/members/$(request.auth.uid));
+    }
+
+    function validProfile(uid) {
+      return request.resource.data.keys().hasOnly(['uid', 'nickname', 'createdAt', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['uid', 'nickname', 'createdAt', 'updatedAt'])
+        && request.resource.data.uid == uid
+        && request.resource.data.nickname is string
+        && request.resource.data.nickname.size() >= 2
+        && request.resource.data.nickname.size() <= 24;
+    }
+
+    function validRoom() {
+      return request.resource.data.keys().hasOnly(['name', 'hostUid', 'isPinned', 'createdAt', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['name', 'hostUid', 'isPinned', 'createdAt', 'updatedAt'])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() >= 1
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.hostUid is string
+        && request.resource.data.isPinned is bool
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    match /profiles/{uid} {
+      allow get: if ownsProfile(uid);
+      allow list: if false;
+      allow create: if ownsProfile(uid)
+        && validProfile(uid)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow update: if ownsProfile(uid)
+        && validProfile(uid)
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if ownsProfile(uid);
+    }
+
+    match /fixedRooms/{roomId} {
+      allow get: if roomHost(roomId) || roomMember(roomId);
+      allow list: if false;
+      allow create: if signedIn()
+        && request.resource.data.hostUid == request.auth.uid
+        && request.resource.data.isPinned == false
+        && validRoom()
+        && request.resource.data.createdAt == request.time;
+      allow update: if roomHost(roomId)
+        && request.resource.data.hostUid == resource.data.hostUid
+        && request.resource.data.createdAt == resource.data.createdAt
+        && validRoom();
+      allow delete: if roomHost(roomId);
+
+      match /members/{memberUid} {
+        allow get: if roomHost(roomId) || (signedIn() && request.auth.uid == memberUid);
+        allow list: if roomHost(roomId);
+        allow create: if roomHostAfter(roomId)
+          && request.resource.data.keys().hasOnly(['uid', 'authorizedBy', 'authorizedAt'])
+          && request.resource.data.keys().hasAll(['uid', 'authorizedBy', 'authorizedAt'])
+          && request.resource.data.uid == memberUid
+          && request.resource.data.authorizedBy == request.auth.uid
+          && request.resource.data.authorizedAt == request.time;
+        allow update: if false;
+        allow delete: if roomHost(roomId);
+      }
+    }
+  }
+}
