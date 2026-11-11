@@ -1,4 +1,5 @@
 import {
+  collectionGroup,
   collection,
   deleteDoc,
   doc,
@@ -8,13 +9,16 @@ import {
   runTransaction,
   serverTimestamp,
   setDoc,
+  query,
+  updateDoc,
+  where,
   writeBatch,
   type Unsubscribe,
 } from '@firebase/firestore'
 import { getFirestore } from '@firebase/firestore'
 import { firebaseApp, firebaseAuth } from './app'
 import { requireFirebaseService, wrapFirebaseError, type FirebaseServiceError } from './firebaseError'
-import type { FixedRoomDocument, FixedRoomMemberDocument, UserProfileDocument } from './models'
+import type { FixedRoomDocument, FixedRoomMemberDocument, FixedRoomSummary, UserProfileDocument } from './models'
 
 const firebaseFirestore = firebaseApp ? getFirestore(firebaseApp) : null
 
@@ -61,6 +65,38 @@ export async function readFixedRoom(roomId: string): Promise<FixedRoomDocument |
   }
 }
 
+export async function readFixedRoomMembership(roomId: string, uid = currentUid()): Promise<boolean> {
+  try {
+    const member = await getDoc(doc(
+      requireFirebaseService(firebaseFirestore, 'firestore'), 'fixedRooms', roomId, 'members', uid,
+    ))
+    return member.exists()
+  } catch (error) {
+    throw wrapFirebaseError('firestore', 'read-fixed-room-membership', error)
+  }
+}
+
+export async function listFixedRoomsForCurrentUser(): Promise<FixedRoomSummary[]> {
+  try {
+    const uid = currentUid()
+    const database = requireFirebaseService(firebaseFirestore, 'firestore')
+    const memberships = await getDocs(query(collectionGroup(database, 'members'), where('uid', '==', uid)))
+    const roomRefs = memberships.docs
+      .map((membership) => membership.ref.parent.parent)
+      .filter((roomRef) => roomRef?.parent.id === 'fixedRooms')
+
+    const rooms = await Promise.all(roomRefs.map(async (roomRef) => {
+      if (!roomRef) return null
+      const room = await getDoc(roomRef)
+      return room.exists() ? { id: room.id, ...room.data() as FixedRoomDocument } : null
+    }))
+
+    return rooms.filter((room): room is FixedRoomSummary => room !== null)
+  } catch (error) {
+    throw wrapFirebaseError('firestore', 'list-authorized-fixed-rooms', error)
+  }
+}
+
 export function subscribeToFixedRoom(
   roomId: string,
   onRoom: (room: FixedRoomDocument | null) => void,
@@ -77,27 +113,58 @@ export function subscribeToFixedRoom(
   }
 }
 
-export async function createFixedRoom(roomId: string, name: string): Promise<void> {
+export async function saveFixedRoom(
+  roomId: string,
+  name: string,
+  memberUids: readonly string[],
+  isPinned = false,
+): Promise<void> {
   try {
     const hostUid = currentUid()
     const database = requireFirebaseService(firebaseFirestore, 'firestore')
     const roomRef = doc(database, 'fixedRooms', roomId)
+    const existingRoom = await getDoc(roomRef)
     const batch = writeBatch(database)
-    batch.set(roomRef, {
-      name,
-      hostUid,
-      isPinned: false,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    })
-    batch.set(doc(database, 'fixedRooms', roomId, 'members', hostUid), {
-      uid: hostUid,
-      authorizedBy: hostUid,
-      authorizedAt: serverTimestamp(),
-    })
+
+    if (existingRoom.exists()) {
+      if (existingRoom.data().hostUid !== hostUid) throw new Error('Odanın sahibi siz değilsiniz.')
+      batch.update(roomRef, { isPinned, updatedAt: serverTimestamp() })
+    } else {
+      batch.set(roomRef, {
+        name,
+        hostUid,
+        isPinned,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    }
+
+    const uniqueMemberUids = new Set([hostUid, ...memberUids])
+    for (const uid of uniqueMemberUids) {
+      batch.set(doc(database, 'fixedRooms', roomId, 'members', uid), {
+        uid,
+        authorizedBy: hostUid,
+        authorizedAt: serverTimestamp(),
+      })
+    }
     await batch.commit()
   } catch (error) {
-    throw wrapFirebaseError('firestore', 'create-fixed-room', error)
+    throw wrapFirebaseError('firestore', 'save-fixed-room', error)
+  }
+}
+
+export async function createFixedRoom(roomId: string, name: string): Promise<void> {
+  await saveFixedRoom(roomId, name, [], false)
+}
+
+export async function setFixedRoomPinned(roomId: string, isPinned: boolean): Promise<void> {
+  try {
+    await updateDoc(doc(requireFirebaseService(firebaseFirestore, 'firestore'), 'fixedRooms', roomId), {
+      isPinned,
+      updatedAt: serverTimestamp(),
+    })
+  } catch (error) {
+    throw wrapFirebaseError('firestore', 'set-fixed-room-pinned', error)
   }
 }
 

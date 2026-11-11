@@ -65,7 +65,6 @@ service cloud.firestore {
       allow list: if false;
       allow create: if signedIn()
         && request.resource.data.hostUid == request.auth.uid
-        && request.resource.data.isPinned == false
         && validRoom()
         && request.resource.data.createdAt == request.time;
       allow update: if roomHost(roomId)
@@ -83,9 +82,19 @@ service cloud.firestore {
           && request.resource.data.uid == memberUid
           && request.resource.data.authorizedBy == request.auth.uid
           && request.resource.data.authorizedAt == request.time;
-        allow update: if false;
+        allow update: if roomHost(roomId)
+          && request.resource.data.keys().hasOnly(['uid', 'authorizedBy', 'authorizedAt'])
+          && request.resource.data.keys().hasAll(['uid', 'authorizedBy', 'authorizedAt'])
+          && request.resource.data.uid == memberUid
+          && request.resource.data.authorizedBy == request.auth.uid
+          && request.resource.data.authorizedAt == request.time;
         allow delete: if roomHost(roomId);
       }
+    }
+
+    // The UID filter in the collection-group query is checked against each result.
+    match /{path=**}/members/{memberUid} {
+      allow list: if signedIn() && resource.data.uid == request.auth.uid;
     }
   }
 }

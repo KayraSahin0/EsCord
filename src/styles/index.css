@@ -447,6 +447,30 @@ a { color: inherit; }
 .sign-out-action { display: inline-flex; align-items: center; gap: 5px; color: #dda0aa; }
 .sign-out-action:hover { color: #f1b6bf; }
 
+.sidebar-room-list { display: grid; gap: 3px; margin-top: 8px; }
+.sidebar-room-link { display: flex; min-width: 0; min-height: 32px; align-items: center; gap: 8px; overflow: hidden; padding: 0 9px; border-radius: 7px; color: #9298a8; font-size: 11px; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-room-link:hover, .sidebar-room-link.is-active { color: #d5c8f8; background: #a78bfa14; }
+.sidebar-room-dot { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: #b49aff; }
+.room-empty-state { padding: 17px; border: 1px dashed #343746; border-radius: 10px; color: #9298a8; background: #11141c; font-size: 12px; line-height: 1.6; }
+.room-state { display: grid; min-height: 50vh; align-content: center; justify-items: center; gap: 9px; color: #b9bdc9; font-size: 14px; text-align: center; }
+.room-state--error p { max-width: 460px; margin: 0; color: #a3a7b4; }
+.room-state--error h1 { margin: 0; color: #eeeaf5; font-size: 22px; }
+.room-info-panel { min-width: 0; }
+.room-info-content { display: grid; align-content: start; gap: 10px; padding: 16px; color: #8d93a2; font-size: 12px; }
+.room-info-content > strong { color: #e3e4eb; font-size: 14px; }
+.room-info-content > code, .room-page-heading code { overflow-wrap: anywhere; color: #bba5f5; font-size: 11px; }
+.room-member-form { display: grid; gap: 7px; margin-top: 9px; padding-top: 13px; border-top: 1px solid #292d39; }
+.room-info-note { display: flex; align-items: flex-start; gap: 6px; margin: 7px 0 0; color: #a5a9b5; font-size: 11px; line-height: 1.5; }
+.room-info-note svg { flex: 0 0 auto; color: #84d9bd; }
+.room-control-bar > span.control-button { cursor: default; }
+.participant-card:not(.participant-card--local) { border-color: #2a2e3a; }
+
+@media (max-width: 820px) {
+  .sidebar-room-list { width: 100%; }
+  .sidebar-room-link { width: 42px; justify-content: center; padding: 0; font-size: 0; }
+  .sidebar-room-dot { width: 8px; height: 8px; }
+}
+
 @media (max-width: 620px) {
   .auth-screen { padding: 17px; }
   .auth-card { padding: 23px 19px; }

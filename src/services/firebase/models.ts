@@ -27,6 +27,25 @@ export type RoomAccessMirror = {
   members: Record<string, true>
 }
 
+export type RoomType = 'temporary' | 'fixed'
+
+export type RoomSessionMetadata = {
+  type: RoomType
+  hostUid: string
+  status: 'active' | 'closed'
+  sessionId: string
+  createdAt: number
+  name?: string
+}
+
+export type RoomActiveMember = {
+  uid: string
+  nickname: string
+  joinedAt: number
+}
+
+export type FixedRoomSummary = FixedRoomDocument & { id: string }
+
 export type RealtimePresenceRecord = {
   uid: string
   nickname: string

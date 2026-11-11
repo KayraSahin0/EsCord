@@ -7,14 +7,20 @@ import {
   Plus,
   Settings2,
 } from 'lucide-react'
+import { useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useUiStore } from '../../stores/uiStore'
 import { useAuthStore } from '../../stores/authStore'
 import { getNicknameInitial } from '../../features/profile/nickname'
+import { useRoomStore } from '../../stores/roomStore'
 
 export function Sidebar() {
   const openModal = useUiStore((state) => state.openModal)
   const nickname = useAuthStore((state) => state.profile?.nickname ?? 'Misafir')
+  const rooms = useRoomStore((state) => state.fixedRooms)
+  const loadRooms = useRoomStore((state) => state.loadFixedRooms)
+
+  useEffect(() => { void loadRooms() }, [loadRooms])
 
   return (
     <aside className="sidebar">
@@ -44,9 +50,8 @@ export function Sidebar() {
           <Plus size={15} />
         </button>
       </div>
-      <div className="sidebar-empty">
-        <span className="sidebar-empty-icon"><Headphones size={17} /></span>
-        <span>Henüz katıldığın oda yok</span>
+      <div className="sidebar-room-list">
+        {rooms.length === 0 ? <div className="sidebar-empty"><span className="sidebar-empty-icon"><Headphones size={17} /></span><span>Henüz sabit odan yok</span></div> : rooms.map((room) => <NavLink className={({ isActive }) => `sidebar-room-link${isActive ? ' is-active' : ''}`} key={room.id} onClick={() => void loadRooms()} to={`/rooms/${room.id}`}><span className="sidebar-room-dot" />{room.name}</NavLink>)}
       </div>
 
       <div className="sidebar-bottom">

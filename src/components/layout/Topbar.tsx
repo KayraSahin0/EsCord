@@ -12,7 +12,7 @@ export function Topbar() {
   const location = useLocation()
   const openModal = useUiStore((state) => state.openModal)
   const pageTitle = location.pathname.startsWith('/rooms/')
-    ? 'Oda önizlemesi'
+    ? 'Oda'
     : pageNames[location.pathname] ?? 'Genel bakış'
 
   return (

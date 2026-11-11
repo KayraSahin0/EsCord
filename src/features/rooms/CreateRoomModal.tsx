@@ -1,39 +1,64 @@
+import { useState, type FormEvent } from 'react'
 import { LockKeyhole, Radio, UsersRound } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { Modal } from '../../components/ui/Modal'
 import { useUiStore } from '../../stores/uiStore'
+import { createRoom } from '../../services/firebase/roomService'
+import type { RoomType } from '../../services/firebase/models'
 
 export function CreateRoomModal() {
   const closeModal = useUiStore((state) => state.closeModal)
+  const navigate = useNavigate()
+  const [name, setName] = useState('')
+  const [type, setType] = useState<RoomType>('temporary')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      const roomId = await createRoom({ name, type })
+      closeModal()
+      navigate(`/rooms/${roomId}`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Oda oluşturulamadı.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
-    <Modal description="Oda oluşturma arayüzü hazır; oda işlemleri sonraki geliştirme aşamasında etkinleşecek." title="Yeni bir oda başlat">
-      <div className="modal-form">
+    <Modal description="Geçici ya da sabit bir oda oluştur. Oda başına en fazla dört kişi katılabilir." title="Yeni bir oda başlat">
+      <form className="modal-form" onSubmit={(event) => void submit(event)}>
         <label className="field-label" htmlFor="room-name">Oda adı</label>
-        <input className="text-input" id="room-name" maxLength={40} placeholder="Örn. Akşam sohbeti" />
+        <input autoFocus className="text-input" id="room-name" maxLength={80} onChange={(event) => setName(event.target.value)} placeholder="Örn. Akşam sohbeti" required value={name} />
 
         <span className="field-label field-label--spaced">Oda türü</span>
         <div className="room-type-list">
-          <label className="room-type-option is-selected">
-            <input defaultChecked name="room-type" type="radio" value="temporary" />
+          <label className={`room-type-option${type === 'temporary' ? ' is-selected' : ''}`}>
+            <input checked={type === 'temporary'} name="room-type" onChange={() => setType('temporary')} type="radio" value="temporary" />
             <span className="room-type-icon"><Radio size={18} /></span>
             <span className="room-type-copy"><strong>Geçici oda</strong><small>Oda kapandığında oturum verileri silinir.</small></span>
             <span className="radio-indicator" />
           </label>
-          <label className="room-type-option is-disabled">
-            <input disabled name="room-type" type="radio" value="pinned" />
+          <label className={`room-type-option${type === 'fixed' ? ' is-selected' : ''}`}>
+            <input checked={type === 'fixed'} name="room-type" onChange={() => setType('fixed')} type="radio" value="fixed" />
             <span className="room-type-icon"><LockKeyhole size={18} /></span>
-            <span className="room-type-copy"><strong>Sabit oda</strong><small>Bu seçenek sonraki aşamada açılacak.</small></span>
-            <span className="room-type-badge"><UsersRound size={12} /> Yakında</span>
+            <span className="room-type-copy"><strong>Sabit oda</strong><small>Oda ve yetkilendirilmiş üyeler korunur.</small></span>
+            <span className="room-type-badge"><UsersRound size={12} /> Kalıcı</span>
           </label>
         </div>
 
-        <p className="modal-note">En fazla 4 katılımcı · Oda bağlantısı henüz etkin değil</p>
+        <p className="modal-note">En fazla 4 katılımcı</p>
+        {error && <p className="auth-form-error" role="alert">{error}</p>}
         <div className="modal-actions">
           <Button onClick={closeModal} type="button" variant="ghost">Vazgeç</Button>
-          <Button disabled title="Oda oluşturma PHASE 04 kapsamında etkinleşecek" type="button" variant="primary">Oda oluştur</Button>
+          <Button disabled={busy} type="submit" variant="primary">{busy ? 'Oluşturuluyor…' : 'Oda oluştur'}</Button>
         </div>
-      </div>
+      </form>
     </Modal>
   )
 }
