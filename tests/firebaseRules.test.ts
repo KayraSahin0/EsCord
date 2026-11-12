@@ -6,7 +6,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { collection, doc, getDoc, getDocs, query, runTransaction as runFirestoreTransaction, serverTimestamp, setDoc, updateDoc, where, writeBatch, type Firestore } from 'firebase/firestore'
+import { collection, deleteDoc, doc, getDoc, getDocs, query, runTransaction as runFirestoreTransaction, serverTimestamp, setDoc, updateDoc, where, writeBatch, type Firestore } from 'firebase/firestore'
 import { get, ref, runTransaction, set } from 'firebase/database'
 
 const projectId = 'demo-escord'
@@ -48,10 +48,10 @@ async function seedRoomData() {
       type: 'fixed', hostUid: 'host', status: 'active', sessionId: 'seed', createdAt: Date.now(), name: 'Test Room',
     })
     await set(ref(context.database(), `roomSessions/${roomId}/activeMembers/0`), {
-      uid: 'host', connectionId: 'host-connection-0001', nickname: 'Host', joinedAt: Date.now(),
+      uid: 'host', connectionId: 'host-connection-0001', nickname: 'Host', joinedAt: Date.now(), microphoneEnabled: false, cameraEnabled: false,
     })
     await set(ref(context.database(), `roomSessions/${roomId}/activeMembers/1`), {
-      uid: 'member', connectionId: 'member-connection-0001', nickname: 'Member', joinedAt: Date.now(),
+      uid: 'member', connectionId: 'member-connection-0001', nickname: 'Member', joinedAt: Date.now(), microphoneEnabled: false, cameraEnabled: false,
     })
   })
 }
@@ -120,6 +120,17 @@ describe('Firebase Security Rules emülatör testleri', () => {
     await assertSucceeds(set(ref(passwordContext('host').database(), `roomAccess/${roomId}/members/guest`), true))
   })
 
+  it('aktif katılımcı yalnızca kendi mikrofon ve kamera durumunu boolean olarak günceller', async () => {
+    await seedRoomData()
+    const member = testEnvironment.authenticatedContext('member').database()
+    const stranger = testEnvironment.authenticatedContext('stranger').database()
+    await assertSucceeds(set(ref(member, `roomSessions/${roomId}/activeMembers/1/microphoneEnabled`), true))
+    await assertSucceeds(set(ref(member, `roomSessions/${roomId}/activeMembers/1/cameraEnabled`), true))
+    await assertFails(set(ref(member, `roomSessions/${roomId}/activeMembers/1/microphoneEnabled`), 'open'))
+    await assertFails(set(ref(member, `roomSessions/${roomId}/activeMembers/1/cameraEnabled`), 'open'))
+    await assertFails(set(ref(stranger, `roomSessions/${roomId}/activeMembers/1/microphoneEnabled`), true))
+  })
+
   it('Spark istemci aynasının bilinen sınırını gösterir: oturum açmış istemci boş RTDB kimliğini ilk sahiplenebilir', async () => {
     const client = testEnvironment.authenticatedContext('self-appointed-host').database()
     await expect(set(ref(client, 'roomAccess/unclaimed-room'), {
@@ -153,6 +164,29 @@ describe('Firebase Security Rules emülatör testleri', () => {
 
     await assertFails(makeRoom(anonymous, 'anonymous-fixed-room'))
     await assertSucceeds(makeRoom(emailUser, 'email-fixed-room'))
+  })
+
+  it('oda sahibi sabit odayı silmeye alır; oda sohbet erişimi kapanır ve kayıtlar silinebilir', async () => {
+    await seedRoomData()
+    const host = passwordContext('host').firestore()
+    const member = testEnvironment.authenticatedContext('member').firestore()
+    const roomRef = doc(host, 'fixedRooms', roomId)
+    const chatRef = collection(host, 'fixedRooms', roomId, 'messages')
+    const memberRef = doc(host, 'fixedRooms', roomId, 'members', 'member')
+    const messageRef = doc(chatRef, '0')
+
+    await testEnvironment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'fixedRooms', roomId, 'messages', '0'), {
+        senderUid: 'host', senderNickname: 'Host', text: 'Delete me', sequence: 1, slot: 0, createdAt: serverTimestamp(),
+      })
+    })
+    await assertSucceeds(updateDoc(roomRef, { isDeleting: true, updatedAt: serverTimestamp() }))
+    await assertFails(getDoc(doc(member, 'fixedRooms', roomId)))
+    await assertFails(getDocs(collection(member, 'fixedRooms', roomId, 'messages')))
+    await assertSucceeds(getDocs(collection(host, 'fixedRooms', roomId, 'members')))
+    await assertSucceeds(deleteDoc(messageRef))
+    await assertSucceeds(deleteDoc(memberRef))
+    await assertSucceeds(deleteDoc(roomRef))
   })
 
   it('RTDB sabit oda aynasını yalnızca e-posta/şifre hesabı oluşturabilir', async () => {

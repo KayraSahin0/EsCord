@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -9,6 +10,7 @@ import {
   query,
   where,
   writeBatch,
+  updateDoc,
   type Unsubscribe,
 } from '@firebase/firestore'
 import { getFirestore } from '@firebase/firestore'
@@ -113,5 +115,36 @@ export async function saveFixedRoom(
     await batch.commit()
   } catch (error) {
     throw wrapFirebaseError('firestore', 'save-fixed-room', error)
+  }
+}
+
+export async function deleteFixedRoomWithHistory(roomId: string): Promise<void> {
+  try {
+    const database = requireFirebaseService(firebaseFirestore, 'firestore')
+    const roomRef = doc(database, 'fixedRooms', roomId)
+
+    // The rule permits only the email/password room owner to mark it for deletion.
+    // This also blocks new chat reads/writes while the known subcollections are removed.
+    await updateDoc(roomRef, { isDeleting: true, updatedAt: serverTimestamp() })
+
+    const [messagesSnapshot, legacyMembersSnapshot] = await Promise.all([
+      getDocs(collection(database, 'fixedRooms', roomId, 'messages')),
+      getDocs(collection(database, 'fixedRooms', roomId, 'members')),
+    ])
+    const documents = [
+      ...messagesSnapshot.docs.map((snapshot) => snapshot.ref),
+      ...legacyMembersSnapshot.docs.map((snapshot) => snapshot.ref),
+      doc(database, 'fixedRooms', roomId, 'chatMeta', 'state'),
+    ]
+
+    // Keep each Firestore batch below the 500-write limit.
+    for (let offset = 0; offset < documents.length; offset += 450) {
+      const batch = writeBatch(database)
+      for (const document of documents.slice(offset, offset + 450)) batch.delete(document)
+      await batch.commit()
+    }
+    await deleteDoc(roomRef)
+  } catch (error) {
+    throw wrapFirebaseError('firestore', 'delete-fixed-room-with-history', error)
   }
 }

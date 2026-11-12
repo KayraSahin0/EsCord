@@ -1,6 +1,7 @@
 import { firebaseAuth } from './app'
 import {
   listFixedRoomsForCurrentUser,
+  deleteFixedRoomWithHistory,
   readFixedRoom,
   saveFixedRoom,
 } from './firestoreService'
@@ -8,6 +9,7 @@ import { FirebaseServiceError } from './firebaseError'
 import {
   closeActiveRoomSession,
   createRoomSessionMetadata,
+  deleteRoomAccessMirror,
   joinActiveRoomSession,
   leaveActiveRoomSession,
   readRoomSessionMetadata,
@@ -214,4 +216,12 @@ export async function pinRoom(roomId: string): Promise<boolean> {
 
 export async function listMyFixedRooms(): Promise<FixedRoomSummary[]> {
   return listFixedRoomsForCurrentUser()
+}
+
+export async function deleteFixedRoom(roomId: string): Promise<void> {
+  const user = currentUser()
+  if (user.isAnonymous) throw new Error('Sabit oda silmek için e-posta ve şifreyle giriş yapın.')
+  await closeActiveRoomSession(roomId, 'fixed')
+  await deleteRoomAccessMirror(roomId)
+  await deleteFixedRoomWithHistory(roomId)
 }

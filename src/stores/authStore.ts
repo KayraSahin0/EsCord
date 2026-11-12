@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { firebaseAuth, isFirebaseConfigured } from '../services/firebase/app'
 import { getFirebaseErrorMessage } from '../services/firebase/firebaseError'
+import { useRoomStore } from './roomStore'
 import {
   signInAsGuest,
   signInWithEmail as authenticateEmail,
@@ -87,6 +88,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   signOut: async () => {
     set({ status: 'loading', errorMessage: null })
     try {
+      await useRoomStore.getState().leaveCurrentRoom()
       await signOutCurrentUser()
       set({ status: 'signed-out', profile: null })
     } catch (error) {

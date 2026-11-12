@@ -156,7 +156,7 @@ export async function joinActiveRoomSession(roomId: string, nickname: string): P
       const result = await runTransaction(candidateRef, (current) => {
         if (current && (current as RoomActiveMember).uid !== uid) return
         const previous = current as RoomActiveMember | null
-        return { uid, connectionId, nickname, joinedAt: previous?.joinedAt ?? Date.now() }
+        return { uid, connectionId, nickname, joinedAt: previous?.joinedAt ?? Date.now(), microphoneEnabled: false, cameraEnabled: false }
       }, { applyLocally: false })
       if (result.committed) {
         memberRef = candidateRef
@@ -177,6 +177,50 @@ export async function joinActiveRoomSession(roomId: string, nickname: string): P
     ])
     throw wrapFirebaseError('realtime-database', 'join-room-session', error)
   }
+}
+
+export async function setActiveRoomMicrophone(
+  roomId: string,
+  connectionId: string,
+  microphoneEnabled: boolean,
+): Promise<void> {
+  const uid = firebaseAuth?.currentUser?.uid
+  if (!uid) throw new Error('Firebase Authentication oturumu açık değil.')
+  const database = requireFirebaseService(firebaseDatabase, 'realtime-database')
+  const snapshot = await get(ref(database, `roomSessions/${roomId}/activeMembers`))
+  const members = snapshot.val() as Record<string, RoomActiveMember> | null
+  const slot = Object.entries(members ?? {}).find(([, member]) => member.uid === uid && member.connectionId === connectionId)?.[0]
+  if (slot === undefined) return
+
+  const memberRef = ref(database, `roomSessions/${roomId}/activeMembers/${slot}`)
+  const result = await runTransaction(memberRef, (current) => {
+    const member = current as RoomActiveMember | null
+    if (!member || member.uid !== uid || member.connectionId !== connectionId) return
+    return { ...member, microphoneEnabled }
+  }, { applyLocally: false })
+  if (!result.committed) throw new Error('Mikrofon durumu oda katılımcılarına iletilemedi. Odayı yenileyip tekrar deneyin.')
+}
+
+export async function setActiveRoomCamera(
+  roomId: string,
+  connectionId: string,
+  cameraEnabled: boolean,
+): Promise<void> {
+  const uid = firebaseAuth?.currentUser?.uid
+  if (!uid) throw new Error('Firebase Authentication oturumu açık değil.')
+  const database = requireFirebaseService(firebaseDatabase, 'realtime-database')
+  const snapshot = await get(ref(database, `roomSessions/${roomId}/activeMembers`))
+  const members = snapshot.val() as Record<string, RoomActiveMember> | null
+  const slot = Object.entries(members ?? {}).find(([, member]) => member.uid === uid && member.connectionId === connectionId)?.[0]
+  if (slot === undefined) return
+
+  const memberRef = ref(database, `roomSessions/${roomId}/activeMembers/${slot}`)
+  const result = await runTransaction(memberRef, (current) => {
+    const member = current as RoomActiveMember | null
+    if (!member || member.uid !== uid || member.connectionId !== connectionId) return
+    return { ...member, cameraEnabled }
+  }, { applyLocally: false })
+  if (!result.committed) throw new Error('Kamera durumu oda katılımcılarına iletilemedi. Odayı yenileyip tekrar deneyin.')
 }
 
 export async function scheduleRoomHostDisconnect(roomId: string, type: RoomType): Promise<void> {

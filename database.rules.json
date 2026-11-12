@@ -31,7 +31,9 @@
           "$slot": {
             ".read": "auth != null && (data.parent().parent().child('metadata').child('type').val() === 'temporary' || root.child('roomAccess').child($roomId).child('type').val() === 'fixed')",
             ".write": "auth != null && $slot.matches(/^[0-3]$/) && root.child('roomSessions').child($roomId).child('metadata').child('status').val() === 'active' && (root.child('roomSessions').child($roomId).child('metadata').child('type').val() === 'temporary' || root.child('roomAccess').child($roomId).child('type').val() === 'fixed') && (!data.exists() || data.child('uid').val() === auth.uid)",
-            ".validate": "!newData.exists() || (newData.hasChildren(['uid', 'connectionId', 'nickname', 'joinedAt']) && newData.child('uid').val() === auth.uid && newData.child('connectionId').isString() && newData.child('connectionId').val().length >= 16 && newData.child('connectionId').val().length <= 64 && newData.child('nickname').isString() && newData.child('nickname').val().length >= 2 && newData.child('nickname').val().length <= 24 && newData.child('joinedAt').isNumber())"
+            ".validate": "!newData.exists() || (newData.hasChildren(['uid', 'connectionId', 'nickname', 'joinedAt']) && newData.child('uid').val() === auth.uid && newData.child('connectionId').isString() && newData.child('connectionId').val().length >= 16 && newData.child('connectionId').val().length <= 64 && newData.child('nickname').isString() && newData.child('nickname').val().length >= 2 && newData.child('nickname').val().length <= 24 && newData.child('joinedAt').isNumber())",
+            "microphoneEnabled": { ".validate": "newData.isBoolean()" },
+            "cameraEnabled": { ".validate": "newData.isBoolean()" }
           }
         },
         "signaling": {

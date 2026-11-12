@@ -13,6 +13,7 @@ export type PeerConnectionStatus = {
   uid: string
   state: PeerConnectionState
   roundTripMs?: number
+  error?: string
 }
 
 type PeerLink = {
@@ -26,12 +27,14 @@ type PeerLink = {
   pendingCandidates: RTCIceCandidateInit[]
   seenSignals: Set<string>
   state: PeerConnectionState
+  error?: string
   roundTripMs?: number
   pendingPingId: string | null
   pendingPingSentAt: number | null
   pongReceived: boolean
   restartAttempts: number
   restartTimer: ReturnType<typeof setTimeout> | null
+  connectTimer: ReturnType<typeof setTimeout> | null
   makingOffer: boolean
   remoteStream: MediaStream | null
   closed: boolean
@@ -49,6 +52,7 @@ type PeerConnectionManagerOptions = {
 export type PeerConnectionManager = {
   updatePeers: (members: readonly RoomActiveMember[]) => Promise<void>
   updateLocalAudioStream: (stream: MediaStream | null) => Promise<void>
+  updateLocalVideoStream: (stream: MediaStream | null) => Promise<void>
   close: () => Promise<void>
 }
 
@@ -69,6 +73,7 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
   const links = new Map<string, PeerLink>()
   let peers = new Map<string, RoomActiveMember>()
   let localAudioStream: MediaStream | null = null
+  let localVideoStream: MediaStream | null = null
   let closed = false
 
   function emit() {
@@ -82,15 +87,21 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
         return {
           uid: peer.uid,
           state: link.state,
+          ...(link.error ? { error: link.error } : {}),
           ...(link.roundTripMs === undefined ? {} : { roundTripMs: link.roundTripMs }),
         }
       })
     options.onChange(statuses)
   }
 
-  function setState(link: PeerLink, state: PeerConnectionState) {
+  function setState(link: PeerLink, state: PeerConnectionState, error?: string) {
     if (link.closed || links.get(link.uid) !== link) return
     link.state = state
+    link.error = error
+    if (state === 'connected' && link.connectTimer) {
+      clearTimeout(link.connectTimer)
+      link.connectTimer = null
+    }
     emit()
   }
 
@@ -116,17 +127,24 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
       const offer = await link.peerConnection.createOffer()
       await link.peerConnection.setLocalDescription(offer)
       if (link.peerConnection.localDescription) await sendDescription(link, link.peerConnection.localDescription.toJSON())
-    } catch {
-      setState(link, 'failed')
+    } catch (error) {
+      setState(link, 'failed', error instanceof Error ? error.message : 'WebRTC offer oluşturulamadı.')
     } finally {
       link.makingOffer = false
     }
   }
 
-  async function applyLocalAudioTrack(link: PeerLink) {
-    const track = localAudioStream?.getAudioTracks()[0] ?? null
-    const transceiver = link.peerConnection.getTransceivers().find((item) => item.receiver.track.kind === 'audio')
-    if (transceiver) await transceiver.sender.replaceTrack(track)
+  async function applyLocalMediaTracks(link: PeerLink) {
+    const tracks: Record<'audio' | 'video', MediaStreamTrack | null> = {
+      audio: localAudioStream?.getAudioTracks()[0] ?? null,
+      video: localVideoStream?.getVideoTracks()[0] ?? null,
+    }
+    for (const transceiver of link.peerConnection.getTransceivers()) {
+      const kind = transceiver.receiver.track.kind
+      if ((kind === 'audio' || kind === 'video') && transceiver.sender.track !== tracks[kind]) {
+        await transceiver.sender.replaceTrack(tracks[kind])
+      }
+    }
   }
 
   async function flushCandidates(link: PeerLink) {
@@ -176,8 +194,8 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
           link.pendingCandidates.push(signal.candidate)
         }
       }
-    } catch {
-      setState(link, 'failed')
+    } catch (error) {
+      setState(link, 'failed', error instanceof Error ? error.message : 'WebRTC signaling verisi işlenemedi.')
     }
   }
 
@@ -193,8 +211,8 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
         kind: 'candidate',
         candidate: candidate.toJSON(),
       })
-    } catch {
-      setState(link, 'failed')
+    } catch (error) {
+      setState(link, 'failed', error instanceof Error ? error.message : 'ICE adayı gönderilemedi.')
     }
   }
 
@@ -216,14 +234,14 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
           link.pongReceived = true
           if (link.peerConnection.connectionState === 'connected') setState(link, 'connected')
         }
-      } catch {
-        setState(link, 'failed')
+      } catch (error) {
+        setState(link, 'failed', error instanceof Error ? error.message : 'DataChannel ping/pong doğrulanamadı.')
       }
     }
     channel.onclose = () => {
       if (link.peerConnection.connectionState !== 'closed') setState(link, 'disconnected')
     }
-    channel.onerror = () => setState(link, 'failed')
+    channel.onerror = () => setState(link, 'failed', 'P2P veri kanalı hata verdi.')
   }
 
   function sendPing(link: PeerLink, channel: RTCDataChannel) {
@@ -246,8 +264,8 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
       await link.peerConnection.setLocalDescription(offer)
       if (link.peerConnection.localDescription) await sendDescription(link, link.peerConnection.localDescription.toJSON())
       setState(link, 'connecting')
-    } catch {
-      setState(link, 'failed')
+    } catch (error) {
+      setState(link, 'failed', error instanceof Error ? error.message : 'ICE yenileme offerı oluşturulamadı.')
     }
   }
 
@@ -258,10 +276,11 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
     try {
       peerConnection = new RTCPeerConnection({ iceServers: ICE_SERVERS })
       peerConnection.addTransceiver('audio', { direction: 'sendrecv' })
+      peerConnection.addTransceiver('video', { direction: 'sendrecv' })
     } catch {
       options.onChange([
         ...[...peers.values()].filter((member) => member.uid !== options.localUid && !links.has(member.uid))
-          .map((member) => ({ uid: member.uid, state: member.connectionId ? 'failed' as const : 'waiting' as const })),
+          .map((member) => ({ uid: member.uid, state: member.connectionId ? 'failed' as const : 'waiting' as const, error: 'Bu tarayıcı RTCPeerConnection oluşturamadı.' })),
         ...[...links.values()].map((link) => ({ uid: link.uid, state: link.state })),
       ])
       return
@@ -283,11 +302,17 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
       pongReceived: false,
       restartAttempts: 0,
       restartTimer: null,
+      connectTimer: null,
       makingOffer: false,
       remoteStream: null,
       closed: false,
     }
     links.set(peer.uid, link)
+    link.connectTimer = setTimeout(() => {
+      if (!link.closed && link.state !== 'connected') {
+        setState(link, 'failed', '15 saniye içinde P2P bağlantısı kurulmadı. Signaling izinlerini, STUN erişimini ve farklı ağ/firewall koşullarını kontrol edin.')
+      }
+    }, 15000)
 
     peerConnection.onicecandidate = (event) => {
       if (event.candidate) void sendCandidate(link, event.candidate)
@@ -299,7 +324,7 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
         setState(link, link.dataChannel?.readyState === 'open' && link.pongReceived ? 'connected' : 'connecting')
       }
       else if (state === 'failed') {
-        setState(link, 'failed')
+        setState(link, 'failed', 'P2P ağ bağlantısı kurulamadı. Signaling, STUN veya ağ/firewall koşullarını kontrol edin.')
         void restartIce(link)
       } else if (state === 'disconnected') {
         setState(link, 'disconnected')
@@ -311,18 +336,23 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
     }
     peerConnection.oniceconnectionstatechange = () => {
       if (peerConnection.iceConnectionState === 'failed') {
-        setState(link, 'failed')
+        setState(link, 'failed', 'ICE bağlantısı başarısız oldu. STUN veya ağ/firewall koşullarını kontrol edin.')
         void restartIce(link)
       }
     }
     peerConnection.onnegotiationneeded = () => { void negotiate(link) }
     peerConnection.ontrack = (event) => {
       if (link.closed || links.get(link.uid) !== link) return
-      const stream = event.streams[0] ?? new MediaStream([event.track])
-      link.remoteStream = stream
-      options.onRemoteStream(link.uid, stream)
+      if (!link.remoteStream) link.remoteStream = new MediaStream()
+      if (!link.remoteStream.getTracks().some((track) => track.id === event.track.id)) {
+        link.remoteStream.addTrack(event.track)
+      }
+      options.onRemoteStream(link.uid, new MediaStream(link.remoteStream.getTracks()))
       event.track.onended = () => {
-        if (!link.remoteStream?.getAudioTracks().some((track) => track.readyState === 'live')) {
+        link.remoteStream?.removeTrack(event.track)
+        const tracks = link.remoteStream?.getTracks().filter((track) => track.readyState === 'live') ?? []
+        if (link.remoteStream && tracks.length > 0) options.onRemoteStream(link.uid, new MediaStream(tracks))
+        else {
           link.remoteStream = null
           options.onRemoteStream(link.uid, null)
         }
@@ -334,9 +364,9 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
     else peerConnection.ondatachannel = (event) => bindDataChannel(link, event.channel)
 
     try {
-      await applyLocalAudioTrack(link)
-    } catch {
-      setState(link, 'failed')
+      await applyLocalMediaTracks(link)
+    } catch (error) {
+      setState(link, 'failed', error instanceof Error ? error.message : 'Yerel medya peer bağlantısına eklenemedi.')
     }
 
     link.unsubscribeSignals = subscribeToPeerSignals(
@@ -346,7 +376,7 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
       peer.uid,
       peer.connectionId,
       (signal) => { void handleSignal(link, signal) },
-      () => setState(link, 'failed'),
+      (error) => setState(link, 'failed', `Signaling okunamadı: ${error.message}`),
     )
 
     try {
@@ -357,8 +387,8 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
         await link.cleanupSignals()
         return
       }
-    } catch {
-      setState(link, 'failed')
+    } catch (error) {
+      setState(link, 'failed', error instanceof Error ? `Signaling kaydı oluşturulamadı: ${error.message}` : 'Signaling kaydı oluşturulamadı.')
     }
     emit()
   }
@@ -367,6 +397,7 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
     if (link.closed) return
     link.closed = true
     if (link.restartTimer) clearTimeout(link.restartTimer)
+    if (link.connectTimer) clearTimeout(link.connectTimer)
     link.unsubscribeSignals()
     options.onRemoteStream(link.uid, null)
     link.dataChannel?.close()
@@ -396,9 +427,19 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
       localAudioStream = stream
       await Promise.all([...links.values()].map(async (link) => {
         try {
-          await applyLocalAudioTrack(link)
-        } catch {
-          setState(link, 'failed')
+          await applyLocalMediaTracks(link)
+        } catch (error) {
+          setState(link, 'failed', error instanceof Error ? error.message : 'Mikrofon track’i peer bağlantısına eklenemedi.')
+        }
+      }))
+    },
+    updateLocalVideoStream: async (stream) => {
+      localVideoStream = stream
+      await Promise.all([...links.values()].map(async (link) => {
+        try {
+          await applyLocalMediaTracks(link)
+        } catch (error) {
+          setState(link, 'failed', error instanceof Error ? error.message : 'Kamera track’i peer bağlantısına eklenemedi.')
         }
       }))
     },

@@ -11,6 +11,7 @@ export type FixedRoomDocument = {
   name: string
   hostUid: string
   isPinned: boolean
+  isDeleting?: boolean
   createdAt: Timestamp
   updatedAt: Timestamp
 }
@@ -38,6 +39,8 @@ export type RoomActiveMember = {
   connectionId: string
   nickname: string
   joinedAt: number
+  microphoneEnabled?: boolean
+  cameraEnabled?: boolean
 }
 
 export type FixedRoomSummary = FixedRoomDocument & { id: string }

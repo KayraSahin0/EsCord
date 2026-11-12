@@ -575,6 +575,13 @@ tercihleri tarayıcıda saklanır.
 -   [ ] Video alanı düzeni.
 -   [ ] Oda çıkışında kamera track'lerini durdur.
 
+### Kamera track düzeni
+
+Her peer bağlantısında başlangıç offer'ıyla çift yönlü video
+transceiver'ı ayrılır. Kamera açma, kapatma ve cihaz değiştirme sender
+track'ini değiştirir. Gelen ses ve video track'leri aynı peer medya
+akışında birleştirilir; yerel video önizlemesi sessiz oynatılır.
+
 ### Test ve kabul kriterleri
 
 -   [ ] İki kullanıcı karşılıklı görüntü görüyor.

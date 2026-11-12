@@ -19,9 +19,16 @@ export function Sidebar() {
   const nickname = useAuthStore((state) => state.profile?.nickname ?? 'Misafir')
   const isAnonymous = useAuthStore((state) => state.profile?.isAnonymous ?? true)
   const rooms = useRoomStore((state) => state.fixedRooms)
+  const activeRoom = useRoomStore((state) => state.activeRoom)
+  const activeRoomStatus = useRoomStore((state) => state.activeRoomStatus)
   const loadRooms = useRoomStore((state) => state.loadFixedRooms)
 
   useEffect(() => { void loadRooms() }, [loadRooms])
+
+  const roomEntries = rooms.map((room) => ({ id: room.id, name: room.name, isActive: activeRoomStatus === 'ready' && activeRoom?.roomId === room.id, isTemporary: false, isDeleting: room.isDeleting === true }))
+  if (activeRoomStatus === 'ready' && activeRoom && !roomEntries.some((room) => room.id === activeRoom.roomId)) {
+    roomEntries.push({ id: activeRoom.roomId, name: activeRoom.name, isActive: true, isTemporary: activeRoom.metadata.type === 'temporary', isDeleting: false })
+  }
 
   return (
     <aside className="sidebar">
@@ -52,7 +59,7 @@ export function Sidebar() {
         </button>
       </div>
       <div className="sidebar-room-list">
-        {rooms.length === 0 ? <div className="sidebar-empty"><span className="sidebar-empty-icon"><Headphones size={17} /></span><span>Henüz sabit odan yok</span></div> : rooms.map((room) => <NavLink className={({ isActive }) => `sidebar-room-link${isActive ? ' is-active' : ''}`} key={room.id} onClick={() => void loadRooms()} to={`/rooms/${room.id}`}><span className="sidebar-room-dot" />{room.name}</NavLink>)}
+        {roomEntries.length === 0 ? <div className="sidebar-empty"><span className="sidebar-empty-icon"><Headphones size={17} /></span><span>Henüz odan yok</span></div> : roomEntries.map((room) => <NavLink className={({ isActive }) => `sidebar-room-link${isActive || room.isActive ? ' is-active' : ''}${room.isDeleting ? ' is-disabled' : ''}`} key={room.id} onClick={(event) => { if (room.isDeleting) event.preventDefault(); else void loadRooms() }} to={`/rooms/${room.id}`}><span className="sidebar-room-dot" />{room.name}{room.isTemporary && <small>GEÇİCİ</small>}</NavLink>)}
       </div>
 
       <div className="sidebar-bottom">

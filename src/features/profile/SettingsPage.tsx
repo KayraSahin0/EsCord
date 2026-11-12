@@ -3,6 +3,7 @@ import { Bell, Check, ChevronDown, CircleHelp, LockKeyhole, LogOut, Moon, Shield
 import { useAuthStore } from '../../stores/authStore'
 import { getNicknameInitial, validateNickname } from './nickname'
 import { useAudioStore } from '../../stores/audioStore'
+import { useVideoStore } from '../../stores/videoStore'
 
 export function SettingsPage() {
   const profile = useAuthStore((state) => state.profile)
@@ -21,18 +22,29 @@ export function SettingsPage() {
   const enumerateDevices = useAudioStore((state) => state.enumerateDevices)
   const setInputDeviceId = useAudioStore((state) => state.setInputDeviceId)
   const setOutputDeviceId = useAudioStore((state) => state.setOutputDeviceId)
+  const cameraDevices = useVideoStore((state) => state.cameraDevices)
+  const cameraDeviceId = useVideoStore((state) => state.cameraDeviceId)
+  const cameraError = useVideoStore((state) => state.cameraError)
+  const enumerateCameras = useVideoStore((state) => state.enumerateCameras)
+  const setCameraDeviceId = useVideoStore((state) => state.setCameraDeviceId)
   const [nicknameDraft, setNicknameDraft] = useState(() => nickname)
   const [validationError, setValidationError] = useState<string | null>(null)
   const supportsOutputSelection = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype
 
   useEffect(() => {
     void enumerateDevices()
+    void enumerateCameras()
     const mediaDevices = navigator.mediaDevices
     if (!mediaDevices) return
     const refreshDevices = () => { void enumerateDevices() }
+    const refreshCameras = () => { void enumerateCameras() }
     mediaDevices.addEventListener('devicechange', refreshDevices)
-    return () => mediaDevices.removeEventListener('devicechange', refreshDevices)
-  }, [enumerateDevices])
+    mediaDevices.addEventListener('devicechange', refreshCameras)
+    return () => {
+      mediaDevices.removeEventListener('devicechange', refreshDevices)
+      mediaDevices.removeEventListener('devicechange', refreshCameras)
+    }
+  }, [enumerateCameras, enumerateDevices])
 
   async function handleNicknameSave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -86,8 +98,14 @@ export function SettingsPage() {
               <option value="">Varsayılan hoparlör</option>
               {outputDevices.map((device, index) => <option key={device.deviceId || `output-${index}`} value={device.deviceId}>{device.label || `Hoparlör ${index + 1}`}</option>)}
             </select></div>
+            <div className="settings-line"><div><strong>Kamera</strong><span>Kamera cihazını değiştirmek açık kamerayı yeniden başlatır.</span></div><select aria-label="Kamera cihazı" className="device-select" onChange={(event) => void setCameraDeviceId(event.target.value)} value={cameraDeviceId}>
+              <option value="">Varsayılan kamera</option>
+              {cameraDevices.map((device, index) => <option key={device.deviceId || `camera-${index}`} value={device.deviceId}>{device.label || `Kamera ${index + 1}`}</option>)}
+            </select></div>
             {inputDevices.length === 0 && <p className="device-help">Mikrofon listesini görmek için bir odaya girip mikrofonu açın; tarayıcı izin verdikten sonra cihaz listesi burada görünür.</p>}
             {microphoneError && <p className="auth-form-error" role="alert">{microphoneError}</p>}
+            {cameraDevices.length === 0 && <p className="device-help">Kamera listesini görmek için bir odaya girip kamerayı açın; tarayıcı izin verdikten sonra cihaz listesi burada görünür.</p>}
+            {cameraError && <p className="auth-form-error" role="alert">{cameraError}</p>}
           </section>
 
           <section className="settings-card settings-card--privacy" id="privacy">
