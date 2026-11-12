@@ -1,13 +1,8 @@
 import { firebaseAuth } from './app'
 import {
-  authorizeFixedRoomMember,
   listFixedRoomsForCurrentUser,
   readFixedRoom,
-  readFixedRoomMembership,
-  readFixedRoomMembers,
-  revokeFixedRoomMember,
   saveFixedRoom,
-  setFixedRoomPinned,
 } from './firestoreService'
 import { FirebaseServiceError } from './firebaseError'
 import {
@@ -15,8 +10,6 @@ import {
   createRoomSessionMetadata,
   joinActiveRoomSession,
   leaveActiveRoomSession,
-  removeRoomMemberActivity,
-  readRoomActiveMembers,
   readRoomSessionMetadata,
   scheduleRoomHostDisconnect,
   setRoomSessionType,
@@ -31,6 +24,7 @@ export type CreateRoomInput = {
 
 export type JoinedRoom = {
   roomId: string
+  connectionId: string
   metadata: RoomSessionMetadata
   name: string
   isPinned: boolean
@@ -84,7 +78,7 @@ export async function createRoom(input: CreateRoomInput): Promise<string> {
 
   try {
     if (input.type === 'fixed') {
-      await saveFixedRoom(roomId, name, [hostUid], false)
+      await saveFixedRoom(roomId, name, false)
     }
     await writeRoomAccessMirror(roomId, [hostUid], input.type)
     await scheduleRoomHostDisconnect(roomId, input.type)
@@ -108,9 +102,7 @@ export async function createRoom(input: CreateRoomInput): Promise<string> {
 }
 
 async function openFixedRoomForHost(roomId: string, hostUid: string): Promise<RoomSessionMetadata> {
-  const members = await readFixedRoomMembers(roomId)
-  const memberUids = [...new Set([hostUid, ...members.map((member) => member.uid)])]
-  await writeRoomAccessMirror(roomId, memberUids, 'fixed')
+  await writeRoomAccessMirror(roomId, [hostUid], 'fixed')
   await scheduleRoomHostDisconnect(roomId, 'fixed')
   await createRoomSessionMetadata(roomId, {
     type: 'fixed',
@@ -136,15 +128,12 @@ export async function joinRoom(roomIdInput: string): Promise<JoinedRoom> {
       fixedRoom = await readFixedRoom(roomId)
     } catch (error) {
       if (error instanceof FirebaseServiceError && error.code?.includes('permission-denied')) {
-        throw new Error('Bu sabit odaya daha önce yetkilendirilmemişsiniz.')
+        throw new Error('Sabit odaya erişim reddedildi. Güncel Firestore ve Realtime Database kurallarını yayımlayıp tekrar deneyin.')
       }
       throw error
     }
     if (!fixedRoom) throw new Error('Sabit oda kaydı bulunamadı.')
     if (fixedRoom.hostUid !== metadata.hostUid) throw new Error('Sabit oda oturumunun sahibi eşleşmiyor.')
-    if (!await readFixedRoomMembership(roomId, user.uid)) {
-      throw new Error('Bu sabit odaya daha önce yetkilendirilmemişsiniz.')
-    }
   } else if (!metadata) {
     try {
       fixedRoom = await readFixedRoom(roomId)
@@ -156,9 +145,6 @@ export async function joinRoom(roomIdInput: string): Promise<JoinedRoom> {
     }
 
     if (!fixedRoom) throw new Error('Oda bulunamadı veya oturum kapatılmış.')
-    if (!await readFixedRoomMembership(roomId, user.uid)) {
-      throw new Error('Bu sabit odaya daha önce yetkilendirilmemişsiniz.')
-    }
     if (fixedRoom.hostUid !== user.uid) {
       throw new Error('Sabit oda şu anda kapalı. Oda sahibi yeniden açtığında katılabilirsiniz.')
     }
@@ -180,7 +166,7 @@ export async function joinRoom(roomIdInput: string): Promise<JoinedRoom> {
     await scheduleRoomHostDisconnect(roomId, metadata.type)
   }
   const nickname = user.displayName?.trim() || 'Misafir'
-  await joinActiveRoomSession(roomId, nickname)
+  const connectionId = await joinActiveRoomSession(roomId, nickname)
 
   if (metadata.type === 'fixed') {
     fixedRoom ??= await readFixedRoom(roomId)
@@ -188,6 +174,7 @@ export async function joinRoom(roomIdInput: string): Promise<JoinedRoom> {
 
   return {
     roomId,
+    connectionId,
     metadata,
     name: fixedRoom?.name ?? metadata.name ?? 'Oda',
     isPinned: fixedRoom?.isPinned ?? false,
@@ -216,58 +203,13 @@ export async function pinRoom(roomId: string): Promise<boolean> {
   if (metadata.type === 'temporary') {
     if (user.isAnonymous) throw new Error('Sabit odaya dönüştürmek için e-posta ve şifreyle giriş yapın.')
     if (!metadata.name) throw new Error('Geçici odanın adı bulunamadı.')
-    const activeMembers = await readRoomActiveMembers(roomId)
-    const memberUids = [...new Set([metadata.hostUid, ...activeMembers.map((member) => member.uid)])]
-    await saveFixedRoom(roomId, metadata.name, memberUids, true)
-    await writeRoomAccessMirror(roomId, memberUids, 'fixed')
+    await saveFixedRoom(roomId, metadata.name, true)
+    await writeRoomAccessMirror(roomId, [metadata.hostUid], 'fixed')
     await setRoomSessionType(roomId, 'fixed')
     return true
   }
 
-  await setFixedRoomPinned(roomId, true)
-  return true
-}
-
-export async function unpinRoom(roomId: string): Promise<void> {
-  const user = currentUser()
-  const metadata = await readRoomSessionMetadata(roomId)
-  if (!metadata || metadata.type !== 'fixed') throw new Error('Sabit oda kaydı bulunamadı.')
-  if (metadata.hostUid !== user.uid) throw new Error('Yalnızca oda sahibi sabitlemeyi kaldırabilir.')
-  await setFixedRoomPinned(roomId, false)
-}
-
-export async function authorizeRoomMember(roomId: string, memberUidInput: string): Promise<void> {
-  const user = currentUser()
-  const memberUid = memberUidInput.trim()
-  if (!memberUid || ['.', '#', '$', '[', ']', '/'].some((character) => memberUid.includes(character))) {
-    throw new Error('Geçerli bir Firebase UID girin.')
-  }
-
-  const metadata = await readRoomSessionMetadata(roomId)
-  if (!metadata || metadata.type !== 'fixed') throw new Error('Bu işlem yalnızca sabit odalarda kullanılabilir.')
-  if (metadata.hostUid !== user.uid) throw new Error('Yalnızca oda sahibi yeni üye yetkilendirebilir.')
-
-  await authorizeFixedRoomMember(roomId, memberUid)
-  const members = await readFixedRoomMembers(roomId)
-  const memberUids = [...new Set([metadata.hostUid, ...members.map((member) => member.uid)])]
-  await writeRoomAccessMirror(roomId, memberUids, 'fixed')
-}
-
-export async function revokeRoomMember(roomId: string, memberUid: string): Promise<void> {
-  const user = currentUser()
-  const metadata = await readRoomSessionMetadata(roomId)
-  if (!metadata || metadata.type !== 'fixed') throw new Error('Bu işlem yalnızca sabit odalarda kullanılabilir.')
-  if (metadata.hostUid !== user.uid) throw new Error('Yalnızca oda sahibi üye yetkisini kaldırabilir.')
-  if (memberUid === metadata.hostUid) throw new Error('Oda sahibinin yetkisi kaldırılamaz.')
-
-  const members = await readFixedRoomMembers(roomId)
-  const remainingUids = [...new Set([metadata.hostUid, ...members
-    .map((member) => member.uid)
-    .filter((uid) => uid !== memberUid)])]
-  await writeRoomAccessMirror(roomId, remainingUids, 'fixed')
-
-  await removeRoomMemberActivity(roomId, memberUid)
-  await revokeFixedRoomMember(roomId, memberUid)
+  throw new Error('Sabit oda zaten kalıcıdır; sabitleme yalnızca geçici odalarda kullanılabilir.')
 }
 
 export async function listMyFixedRooms(): Promise<FixedRoomSummary[]> {

@@ -23,7 +23,7 @@ import {
 import { firebaseApp, firebaseAuth } from './app'
 import { requireFirebaseService, wrapFirebaseError, type FirebaseServiceError } from './firebaseError'
 import type { RoomType } from './models'
-import { getDatabase } from '@firebase/database'
+import { firebaseDatabase } from './realtimeDatabaseService'
 import { getFirestore } from '@firebase/firestore'
 
 export type ChatMessage = {
@@ -35,7 +35,7 @@ export type ChatMessage = {
   sequence?: number
 }
 
-const database = firebaseApp ? getDatabase(firebaseApp) : null
+const database = firebaseDatabase
 const firestore = firebaseApp ? getFirestore(firebaseApp) : null
 
 export function validateMessageText(text: string): string | null {

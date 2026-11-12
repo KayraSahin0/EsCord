@@ -235,7 +235,17 @@ a { color: inherit; }
 .participant-label > span:first-child { display: grid; gap: 2px; }
 .participant-label strong { color: #e6e6ed; font-size: 12px; font-weight: 630; }
 .participant-label small { color: #9398a7; font-size: 11px; }
+.participant-label .participant-connection { margin-top: 2px; color: #d8b77a; font-size: 10px; }
+.participant-label .participant-connection--connected { color: #84d9bd; }
+.participant-label .participant-connection--failed,
+.participant-label .participant-connection--disconnected { color: #ed929a; }
 .participant-mic { display: grid; width: 25px; height: 25px; place-items: center; border: 1px solid #343543; border-radius: 7px; color: #9b92af; background: #171821; }
+.participant-mic--on { border-color: #286a59; color: #8fe0c4; background: #142820; }
+.remote-audio-controls { position: absolute; top: 10px; right: 10px; display: flex; align-items: center; gap: 7px; }
+.remote-audio-controls audio { display: none; }
+.participant-audio-state { width: 8px; height: 8px; border-radius: 50%; background: #555968; }
+.participant-audio-state.is-speaking { background: #7fe0c0; box-shadow: 0 0 10px #7fe0c0a8; }
+.remote-volume-control input { width: 66px; height: 14px; accent-color: #a78bfa; }
 .host-tag { position: absolute; top: 10px; left: 10px; display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px; border: 1px solid #b39af42a; border-radius: 5px; color: #c5b3f4; background: #a78bfa12; font-size: 10px; }
 .participant-card--empty { gap: 5px; border-style: dashed; background: #11131a; }
 .empty-seat-icon { display: grid; width: 39px; height: 39px; margin-bottom: 4px; place-items: center; border: 1px solid #323542; border-radius: 12px; color: #767d8f; background: #191c26; }
@@ -244,6 +254,9 @@ a { color: inherit; }
 .room-control-bar { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 9px; border: 1px solid #282c38; border-radius: 10px; background: #141720; }
 .control-button, .leave-button { display: inline-flex; min-height: 34px; align-items: center; justify-content: center; gap: 7px; padding: 0 10px; border: 1px solid #323644; border-radius: 7px; color: #b1b5c4; background: #1a1d28; font-size: 11px; }
 .control-button > svg:first-child { color: #c5b4f5; }
+.voice-control { display: inline-flex; min-height: 34px; align-items: center; justify-content: center; gap: 7px; padding: 0 11px; border: 1px solid #603b45; border-radius: 7px; color: #edb4bc; background: #321d25; font-size: 11px; }
+.voice-control--active { border-color: #286a59; color: #a5e8d2; background: #142820; }
+.room-microphone-error { margin: 7px 0 0; text-align: center; }
 .control-divider { width: 1px; height: 22px; margin: 0 2px; background: #333643; }
 .leave-button { border-color: #5a313b; color: #e4a4ad; background: #321d25; }
 .stage-footnote { display: flex; align-items: center; justify-content: center; gap: 5px; margin: 12px 0 0; color: #7e8494; font-size: 11px; }
@@ -298,6 +311,9 @@ a { color: inherit; }
 .settings-line strong { color: #cfd1db; font-size: 12px; font-weight: 610; }
 .settings-line > div > span { color: #858b9a; font-size: 11px; }
 .value-placeholder { color: #777d8d; font-size: 11px; text-align: right; }
+.device-select { max-width: min(55%, 260px); padding: 7px 9px; border: 1px solid #323644; border-radius: 6px; color: #c7cad5; background: #1a1d27; font-size: 11px; }
+.device-select:disabled { opacity: .55; cursor: not-allowed; }
+.device-help { margin: 10px 0 0; color: #858b9a; font-size: 11px; line-height: 1.5; }
 .select-placeholder { display: inline-flex; align-items: center; gap: 7px; padding: 6px 8px; border: 1px solid #323644; border-radius: 6px; color: #b4b7c3; background: #1a1d27; font-size: 11px; opacity: .6; }
 .toggle-placeholder { position: relative; width: 29px; height: 16px; border: 1px solid #383b48; border-radius: 99px; background: #222530; opacity: .55; }
 .toggle-placeholder::after { position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: #9ba1b0; content: ""; }
@@ -335,6 +351,7 @@ a { color: inherit; }
   .room-layout { grid-template-columns: minmax(0, 1fr) 220px; }
   .room-control-bar { gap: 4px; padding: 7px 4px; }
   .control-button, .leave-button { gap: 5px; padding: 0 7px; }
+  .voice-control { gap: 5px; padding: 0 7px; }
 }
 @media (max-width: 620px) {
   body { min-width: 360px; }

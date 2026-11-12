@@ -7,10 +7,12 @@ import { useUiStore } from '../../stores/uiStore'
 import { createRoom } from '../../services/firebase/roomService'
 import type { RoomType } from '../../services/firebase/models'
 import { useAuthStore } from '../../stores/authStore'
+import { useRoomStore } from '../../stores/roomStore'
 
 export function CreateRoomModal() {
   const closeModal = useUiStore((state) => state.closeModal)
   const isAnonymous = useAuthStore((state) => state.profile?.isAnonymous ?? true)
+  const loadFixedRooms = useRoomStore((state) => state.loadFixedRooms)
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [type, setType] = useState<RoomType>('temporary')
@@ -23,6 +25,7 @@ export function CreateRoomModal() {
     setError(null)
     try {
       const roomId = await createRoom({ name, type })
+      if (type === 'fixed') await loadFixedRooms(true)
       closeModal()
       navigate(`/rooms/${roomId}`)
     } catch (cause) {
@@ -49,7 +52,7 @@ export function CreateRoomModal() {
           <label className={`room-type-option${type === 'fixed' ? ' is-selected' : ''}${isAnonymous ? ' is-disabled' : ''}`}>
             <input checked={type === 'fixed'} disabled={isAnonymous} name="room-type" onChange={() => setType('fixed')} type="radio" value="fixed" />
             <span className="room-type-icon"><LockKeyhole size={18} /></span>
-            <span className="room-type-copy"><strong>Sabit oda</strong><small>{isAnonymous ? 'Sabit oda için e-posta ile giriş yap.' : 'Oda ve yetkilendirilmiş üyeler korunur.'}</small></span>
+            <span className="room-type-copy"><strong>Sabit oda</strong><small>{isAnonymous ? 'Sabit oda için e-posta ile giriş yap.' : 'Oda koduna sahip herkes katılabilir.'}</small></span>
             <span className="room-type-badge"><UsersRound size={12} /> Kalıcı</span>
           </label>
         </div>

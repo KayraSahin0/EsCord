@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { ArrowLeft, Camera, Check, Copy, LockKeyhole, MicOff, Radio, Send, ShieldCheck, UsersRound } from 'lucide-react'
+import { ArrowLeft, Camera, Check, Copy, LockKeyhole, Mic, MicOff, Send, ShieldCheck, UsersRound } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { useAuthStore } from '../../stores/authStore'
@@ -7,6 +7,8 @@ import { useRoomStore } from '../../stores/roomStore'
 import { sendRoomMessage, subscribeToRoomMessages, type ChatMessage } from '../../services/firebase/chatService'
 import { getFirebaseErrorMessage } from '../../services/firebase/firebaseError'
 import { getNicknameInitial } from '../profile/nickname'
+import { useAudioStore } from '../../stores/audioStore'
+import { RemoteAudioPlayer } from './RemoteAudioPlayer'
 
 export function RoomPage() {
   const { roomId = '' } = useParams()
@@ -15,15 +17,19 @@ export function RoomPage() {
   const isAnonymous = profile?.isAnonymous ?? true
   const room = useRoomStore((state) => state.activeRoom)
   const members = useRoomStore((state) => state.activeMembers)
+  const peerConnections = useRoomStore((state) => state.peerConnections)
+  const remoteAudioStreams = useRoomStore((state) => state.remoteAudioStreams)
+  const setLocalAudioStream = useRoomStore((state) => state.setLocalAudioStream)
+  const microphoneStream = useAudioStore((state) => state.microphoneStream)
+  const microphoneError = useAudioStore((state) => state.microphoneError)
+  const startMicrophone = useAudioStore((state) => state.startMicrophone)
+  const stopMicrophone = useAudioStore((state) => state.stopMicrophone)
   const status = useRoomStore((state) => state.activeRoomStatus)
   const error = useRoomStore((state) => state.activeRoomError)
   const connect = useRoomStore((state) => state.connectToRoom)
   const disconnect = useRoomStore((state) => state.disconnectFromRoom)
   const leave = useRoomStore((state) => state.leaveCurrentRoom)
   const pin = useRoomStore((state) => state.pinCurrentRoom)
-  const unpin = useRoomStore((state) => state.unpinCurrentRoom)
-  const authorize = useRoomStore((state) => state.authorizeCurrentRoomMember)
-  const [memberUid, setMemberUid] = useState('')
   const [actionError, setActionError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [chatState, setChatState] = useState<{ key: string; messages: ChatMessage[] }>({ key: '', messages: [] })
@@ -38,6 +44,10 @@ export function RoomPage() {
     void connect(roomId)
     return () => { void disconnect(roomId) }
   }, [connect, disconnect, roomId])
+
+  useEffect(() => {
+    void setLocalAudioStream(microphoneStream)
+  }, [microphoneStream, setLocalAudioStream])
 
   useEffect(() => {
     if (!room || room.roomId !== roomId || status !== 'ready') return
@@ -59,8 +69,21 @@ export function RoomPage() {
   useEffect(() => { messageEndRef.current?.scrollIntoView({ block: 'end' }) }, [chatState])
 
   async function leaveRoom() {
+    stopMicrophone()
     await leave()
     navigate('/')
+  }
+
+  async function toggleMicrophone() {
+    if (microphoneStream) {
+      stopMicrophone()
+      return
+    }
+    try {
+      await startMicrophone()
+    } catch {
+      // The audio store exposes a user-facing permission/device error.
+    }
   }
 
   async function copyInvite() {
@@ -76,21 +99,9 @@ export function RoomPage() {
   async function togglePin() {
     setActionError(null)
     try {
-      if (room?.isPinned) await unpin()
-      else await pin()
+      await pin()
     } catch (cause) {
       setActionError(cause instanceof Error ? cause.message : 'Oda ayarı kaydedilemedi.')
-    }
-  }
-
-  async function addMember(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setActionError(null)
-    try {
-      await authorize(memberUid)
-      setMemberUid('')
-    } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : 'Üye yetkilendirilemedi.')
     }
   }
 
@@ -127,7 +138,7 @@ export function RoomPage() {
         </div>
         <div className="room-heading-actions">
           <Button icon={<Copy size={15} />} onClick={() => void copyInvite()} variant="secondary">{copied ? 'Kopyalandı' : 'Davet bağlantısı'}</Button>
-          {isHost && !isAnonymous && <Button icon={<LockKeyhole size={15} />} onClick={() => void togglePin()} variant="secondary">{room.isPinned ? 'Sabitlemeyi kaldır' : 'Sabitle'}</Button>}
+          {isHost && room.metadata.type === 'temporary' && !isAnonymous && <Button icon={<LockKeyhole size={15} />} onClick={() => void togglePin()} variant="secondary">Sabitle</Button>}
         </div>
       </div>
 
@@ -138,20 +149,34 @@ export function RoomPage() {
             {members.map((member) => {
               const host = member.uid === room.metadata.hostUid
               const self = member.uid === profile?.uid
+              const peerConnection = peerConnections.find((connection) => connection.uid === member.uid)
+              const connectionLabel = peerConnection?.state === 'connected'
+                ? `P2P bağlı${peerConnection.roundTripMs === undefined ? '' : ` · ${peerConnection.roundTripMs} ms`}`
+                : peerConnection?.state === 'failed'
+                  ? 'P2P bağlantısı kurulamadı'
+                  : peerConnection?.state === 'disconnected'
+                    ? 'P2P bağlantısı kesildi'
+                    : peerConnection?.state === 'waiting'
+                      ? 'Yeniden katılım bekleniyor'
+                      : 'P2P bağlanıyor…'
               return <article className={`participant-card${self ? ' participant-card--local' : ''}`} key={member.uid}>
                 <div className="participant-orb participant-orb--you">{getNicknameInitial(member.nickname)}</div>
-                <div className="participant-label"><span><strong>{self ? 'Sen' : member.nickname}</strong><small>{member.nickname}</small></span><span className="participant-mic"><MicOff size={15} /></span></div>
+                <div className="participant-label"><span><strong>{self ? 'Sen' : member.nickname}</strong><small>{member.nickname}</small>{!self && <small className={`participant-connection participant-connection--${peerConnection?.state ?? 'connecting'}`}>{connectionLabel}</small>}</span><span aria-label={self ? (microphoneStream ? 'Mikrofon açık' : 'Mikrofon kapalı') : 'Ses bağlantısı'} className={`participant-mic${self && microphoneStream ? ' participant-mic--on' : ''}`}>{self && microphoneStream ? <Mic size={15} /> : <MicOff size={15} />}</span></div>
                 {host && <span className="host-tag"><ShieldCheck size={12} /> Oda sahibi</span>}
+                {!self && <RemoteAudioPlayer uid={member.uid} stream={remoteAudioStreams[member.uid]} />}
               </article>
             })}
             {Array.from({ length: Math.max(0, 4 - members.length) }, (_, index) => <article className="participant-card participant-card--empty" key={`empty-${index}`}><span className="empty-seat-icon"><UsersRound size={21} /></span><strong>Boş koltuk</strong><small>Odaya katılmayı bekliyor</small></article>)}
           </div>
           <div className="room-control-bar">
-            <span className="control-button" title="Medya özellikleri PHASE 07–09’da gelecek"><Radio size={18} /><span>Medya kapalı</span></span>
+            <button aria-pressed={!!microphoneStream} className={`voice-control${microphoneStream ? ' voice-control--active' : ''}`} onClick={() => void toggleMicrophone()} type="button">
+              {microphoneStream ? <Mic size={18} /> : <MicOff size={18} />}<span>{microphoneStream ? 'Mikrofon açık' : 'Mikrofon kapalı'}</span>
+            </button>
             <span className="control-divider" />
             <button className="leave-button" onClick={() => void leaveRoom()} type="button"><ArrowLeft size={16} /><span>Odadan ayrıl</span></button>
           </div>
-          <p className="stage-footnote"><span className="stage-lock"><ShieldCheck size={14} /></span>Ses ve görüntü bağlantısı henüz etkin değil.</p>
+          {microphoneError && <p className="auth-form-error room-microphone-error" role="alert">{microphoneError}</p>}
+          <p className="stage-footnote"><span className="stage-lock"><ShieldCheck size={14} /></span>{peerConnections.some((connection) => connection.state === 'connected') ? 'Ses peer cihazlarına P2P aktarılır; Firebase medya taşımaz.' : 'Ses gönderimi için önce diğer katılımcıyla P2P bağlantısı kuruluyor.'}</p>
         </section>
 
         <aside aria-label="Oda sohbeti" className="chat-panel">
@@ -174,18 +199,13 @@ export function RoomPage() {
           <div className="room-info-content room-info-compact">
             <strong>{title}</strong><code>{roomId}</code>
             <span>{members.length} aktif katılımcı · kapasite 4</span>
-            {isHost && room.metadata.type === 'fixed' && <form className="room-member-form" onSubmit={(event) => void addMember(event)}>
-              <label className="field-label" htmlFor="member-uid">Üye UID yetkilendir</label>
-              <input className="text-input" id="member-uid" onChange={(event) => setMemberUid(event.target.value)} placeholder="Firebase UID" value={memberUid} />
-              <Button disabled={!memberUid.trim()} type="submit" variant="secondary">Üyeyi ekle</Button>
-            </form>}
             {actionError && <p className="auth-form-error" role="alert">{actionError}</p>}
-            <p className="room-info-note"><Check size={14} /> {room.metadata.type === 'fixed' ? 'Sabit oda, host yeniden katılana kadar kapalı kalır.' : 'Geçici oda host ayrılınca kapanır.'}</p>
+            <p className="room-info-note"><Check size={14} /> {room.metadata.type === 'fixed' ? 'Oda koduna sahip oturum açmış kullanıcılar katılabilir. Host yeniden katılana kadar oda kapalıdır.' : 'Geçici oda host ayrılınca kapanır.'}</p>
           </div>
         </aside>
       </div>
 
-      <section className="room-preview-notice"><span className="preview-note-icon"><Camera size={17} /></span><p><strong>Yazılı sohbet etkin</strong><span>Ses, kamera ve ekran paylaşımı sonraki aşamalarda etkinleşecek.</span></p><span className="preview-note-mark">PHASE 05</span></section>
+      <section className="room-preview-notice"><span className="preview-note-icon"><Camera size={17} /></span><p><strong>Sesli sohbet etkin</strong><span>Mikrofon ve ses cihazı tercihlerini Ayarlar’dan değiştirebilirsin. Kamera ve ekran paylaşımı sonraki aşamalarda gelecek.</span></p><span className="preview-note-mark">PHASE 07</span></section>
     </div>
   )
 }

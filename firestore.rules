@@ -19,14 +19,9 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/fixedRooms/$(roomId)).data.hostUid == request.auth.uid;
     }
 
-    function roomHostAfter(roomId) {
-      return signedIn()
-        && getAfter(/databases/$(database)/documents/fixedRooms/$(roomId)).data.hostUid == request.auth.uid;
-    }
-
     function roomMember(roomId) {
-      return signedIn()
-        && exists(/databases/$(database)/documents/fixedRooms/$(roomId)/members/$(request.auth.uid));
+      // The unguessable room code is the invitation capability for fixed rooms.
+      return signedIn();
     }
 
     function chatSlotPath(roomId, slot) {
@@ -110,8 +105,8 @@ service cloud.firestore {
     }
 
     match /fixedRooms/{roomId} {
-      allow get: if roomHost(roomId) || roomMember(roomId);
-      allow list: if false;
+      allow get: if roomMember(roomId);
+      allow list: if signedIn() && resource.data.hostUid == request.auth.uid;
       allow create: if signedIn()
         && passwordUser()
         && request.resource.data.hostUid == request.auth.uid
@@ -123,26 +118,6 @@ service cloud.firestore {
         && request.resource.data.createdAt == resource.data.createdAt
         && validRoom();
       allow delete: if roomHost(roomId);
-
-      match /members/{memberUid} {
-        allow get: if roomHost(roomId) || (signedIn() && request.auth.uid == memberUid);
-        allow list: if roomHost(roomId);
-        allow create: if roomHostAfter(roomId)
-          && passwordUser()
-          && request.resource.data.keys().hasOnly(['uid', 'authorizedBy', 'authorizedAt'])
-          && request.resource.data.keys().hasAll(['uid', 'authorizedBy', 'authorizedAt'])
-          && request.resource.data.uid == memberUid
-          && request.resource.data.authorizedBy == request.auth.uid
-          && request.resource.data.authorizedAt == request.time;
-        allow update: if roomHost(roomId)
-          && passwordUser()
-          && request.resource.data.keys().hasOnly(['uid', 'authorizedBy', 'authorizedAt'])
-          && request.resource.data.keys().hasAll(['uid', 'authorizedBy', 'authorizedAt'])
-          && request.resource.data.uid == memberUid
-          && request.resource.data.authorizedBy == request.auth.uid
-          && request.resource.data.authorizedAt == request.time;
-        allow delete: if roomHost(roomId);
-      }
 
       match /chatMeta/state {
         allow get: if roomHost(roomId) || roomMember(roomId);
@@ -165,11 +140,6 @@ service cloud.firestore {
           && validChatMessage(roomId, slotId);
         allow delete: if false;
       }
-    }
-
-    // The UID filter in the collection-group query is checked against each result.
-    match /{path=**}/members/{memberUid} {
-      allow list: if signedIn() && resource.data.uid == request.auth.uid;
     }
   }
 }

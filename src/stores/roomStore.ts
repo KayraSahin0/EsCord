@@ -1,13 +1,14 @@
 import { create } from 'zustand'
 import type { Unsubscribe } from '@firebase/database'
+import { useAudioStore } from './audioStore'
+import { firebaseAuth } from '../services/firebase/app'
 import { getFirebaseErrorMessage } from '../services/firebase/firebaseError'
+import { createPeerConnectionManager, type PeerConnectionManager, type PeerConnectionStatus } from '../services/webrtc/peerConnectionManager'
 import {
-  authorizeRoomMember as authorizeRoomMemberService,
   joinRoom as joinRoomService,
   leaveRoom as leaveRoomService,
   listMyFixedRooms,
   pinRoom as pinRoomService,
-  unpinRoom as unpinRoomService,
   type JoinedRoom,
 } from '../services/firebase/roomService'
 import {
@@ -25,6 +26,8 @@ type RoomState = {
   fixedRoomsError: string | null
   activeRoom: JoinedRoom | null
   activeMembers: RoomActiveMember[]
+  peerConnections: PeerConnectionStatus[]
+  remoteAudioStreams: Record<string, MediaStream>
   activeRoomStatus: ActiveRoomStatus
   activeRoomError: string | null
   loadFixedRooms: (force?: boolean) => Promise<void>
@@ -32,8 +35,7 @@ type RoomState = {
   disconnectFromRoom: (roomId: string) => Promise<void>
   leaveCurrentRoom: () => Promise<void>
   pinCurrentRoom: () => Promise<void>
-  unpinCurrentRoom: () => Promise<void>
-  authorizeCurrentRoomMember: (uid: string) => Promise<void>
+  setLocalAudioStream: (stream: MediaStream | null) => Promise<void>
 }
 
 type RoomLease = {
@@ -44,6 +46,7 @@ type RoomLease = {
   finalizing: boolean
   ready: Promise<void>
   unsubscribers: Unsubscribe[]
+  peerManager: PeerConnectionManager | null
 }
 
 let currentLease: RoomLease | null = null
@@ -61,6 +64,8 @@ export const useRoomStore = create<RoomState>((set, get) => {
     }
 
     lease.finalized = true
+    await lease.peerManager?.close()
+    useAudioStore.getState().stopMicrophone()
     for (const unsubscribe of lease.unsubscribers) unsubscribe()
     if (lease.joined) {
       try {
@@ -71,7 +76,7 @@ export const useRoomStore = create<RoomState>((set, get) => {
     }
     if (currentLease === lease) {
       currentLease = null
-      set({ activeRoom: null, activeMembers: [], activeRoomStatus: 'idle', activeRoomError: null })
+      set({ activeRoom: null, activeMembers: [], peerConnections: [], remoteAudioStreams: {}, activeRoomStatus: 'idle', activeRoomError: null })
     }
   }
 
@@ -81,7 +86,26 @@ export const useRoomStore = create<RoomState>((set, get) => {
       lease.joined = true
       if (lease.finalized || currentLease !== lease) return
 
-      set({ activeRoom: joined, activeRoomStatus: 'ready', activeRoomError: null })
+      set({ activeRoom: joined, activeMembers: [], peerConnections: [], remoteAudioStreams: {}, activeRoomStatus: 'ready', activeRoomError: null })
+      const localUid = firebaseAuth?.currentUser?.uid
+      if (!localUid) throw new Error('WebRTC bağlantısı için Firebase oturumu bulunamadı.')
+      lease.peerManager = createPeerConnectionManager({
+        roomId: lease.roomId,
+        sessionId: joined.metadata.sessionId,
+        localUid,
+        localConnectionId: joined.connectionId,
+        onRemoteStream: (uid, stream) => set((state) => {
+          const remoteAudioStreams = { ...state.remoteAudioStreams }
+          if (stream) remoteAudioStreams[uid] = stream
+          else delete remoteAudioStreams[uid]
+          return { remoteAudioStreams }
+        }),
+        onChange: (peerConnections) => {
+          if (currentLease === lease && !lease.finalized) set({ peerConnections })
+        },
+      })
+      const existingMicrophoneStream = useAudioStore.getState().microphoneStream
+      if (existingMicrophoneStream) await lease.peerManager.updateLocalAudioStream(existingMicrophoneStream)
       lease.unsubscribers.push(subscribeToRoomSessionMetadata(lease.roomId, (metadata) => {
         if (!metadata) {
           set({ activeRoomStatus: 'closed', activeRoomError: 'Oda sahibi oturumu kapattı.' })
@@ -96,6 +120,7 @@ export const useRoomStore = create<RoomState>((set, get) => {
 
       lease.unsubscribers.push(subscribeToRoomActiveMembers(lease.roomId, (members) => {
         set({ activeMembers: members.sort((a, b) => a.joinedAt - b.joinedAt) })
+        void lease.peerManager?.updatePeers(members)
       }, (error) => {
         set({ activeRoomStatus: 'error', activeRoomError: getFirebaseErrorMessage(error, 'realtime-database') })
       }))
@@ -110,10 +135,16 @@ export const useRoomStore = create<RoomState>((set, get) => {
     fixedRoomsError: null,
     activeRoom: null,
     activeMembers: [],
+    peerConnections: [],
+    remoteAudioStreams: {},
     activeRoomStatus: 'idle',
     activeRoomError: null,
     loadFixedRooms: async (force = false) => {
-      if (fixedRoomsRequest) return fixedRoomsRequest
+      if (fixedRoomsRequest) {
+        if (!force) return fixedRoomsRequest
+        await fixedRoomsRequest
+        if (fixedRoomsRequest) return fixedRoomsRequest
+      }
       if (!force && get().fixedRoomsStatus === 'ready') return
 
       set({ fixedRoomsStatus: 'loading', fixedRoomsError: null })
@@ -140,7 +171,7 @@ export const useRoomStore = create<RoomState>((set, get) => {
         await finalizeLease(currentLease)
       }
 
-      set({ activeRoom: null, activeMembers: [], activeRoomStatus: 'joining', activeRoomError: null })
+      set({ activeRoom: null, activeMembers: [], peerConnections: [], remoteAudioStreams: {}, activeRoomStatus: 'joining', activeRoomError: null })
       const lease: RoomLease = {
         roomId,
         references: 1,
@@ -149,6 +180,7 @@ export const useRoomStore = create<RoomState>((set, get) => {
         finalizing: false,
         ready: Promise.resolve(),
         unsubscribers: [],
+        peerManager: null,
       }
       currentLease = lease
       lease.ready = startLease(lease)
@@ -181,29 +213,8 @@ export const useRoomStore = create<RoomState>((set, get) => {
         throw error
       }
     },
-    unpinCurrentRoom: async () => {
-      const room = get().activeRoom
-      if (!room) return
-      try {
-        await unpinRoomService(room.roomId)
-        set({ activeRoom: { ...room, isPinned: false }, activeRoomError: null })
-        await get().loadFixedRooms(true)
-      } catch (error) {
-        set({ activeRoomError: getFirebaseErrorMessage(error, 'firestore') })
-        throw error
-      }
-    },
-    authorizeCurrentRoomMember: async (uid) => {
-      const room = get().activeRoom
-      if (!room) return
-      try {
-        await authorizeRoomMemberService(room.roomId, uid)
-        set({ activeRoomError: null })
-        await get().loadFixedRooms(true)
-      } catch (error) {
-        set({ activeRoomError: getFirebaseErrorMessage(error, 'firestore') })
-        throw error
-      }
+    setLocalAudioStream: async (stream) => {
+      await currentLease?.peerManager?.updateLocalAudioStream(stream)
     },
   }
 })

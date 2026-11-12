@@ -4,7 +4,7 @@
     ".write": false,
     "roomAccess": {
       "$roomId": {
-        ".read": "auth != null && data.child('members').child(auth.uid).val() === true",
+        ".read": "auth != null",
         ".write": "auth != null && ((!data.exists() && newData.child('hostUid').val() === auth.uid && newData.child('members').child(auth.uid).val() === true && (newData.child('type').val() === 'temporary' || auth.token.firebase.sign_in_provider === 'password')) || (data.exists() && data.child('hostUid').val() === auth.uid && (!newData.exists() || (newData.child('hostUid').val() === data.child('hostUid').val() && (newData.child('type').val() !== 'fixed' || auth.token.firebase.sign_in_provider === 'password')))))",
         ".validate": "!newData.exists() || (newData.hasChildren(['hostUid', 'type', 'members']) && newData.child('hostUid').isString() && (newData.child('type').val() === 'temporary' || newData.child('type').val() === 'fixed') && newData.child('members').child(newData.child('hostUid').val()).val() === true)",
         "members": {
@@ -16,7 +16,7 @@
     },
     "roomSessions": {
       "$roomId": {
-        ".read": "auth != null && (root.child('roomAccess').child($roomId).child('members').child(auth.uid).val() === true || data.child('activeMembers').child(auth.uid).exists())",
+        ".read": "auth != null && (data.child('activeMembers/0/uid').val() === auth.uid || data.child('activeMembers/1/uid').val() === auth.uid || data.child('activeMembers/2/uid').val() === auth.uid || data.child('activeMembers/3/uid').val() === auth.uid)",
         ".write": "auth != null && root.child('roomAccess').child($roomId).child('hostUid').val() === auth.uid",
         "metadata": {
           ".read": "auth != null",
@@ -27,17 +27,54 @@
           }
         },
         "activeMembers": {
-          ".read": "auth != null && (data.parent().child('metadata').child('type').val() === 'temporary' || root.child('roomAccess').child($roomId).child('members').child(auth.uid).val() === true)",
+          ".read": "auth != null && (data.parent().child('metadata').child('type').val() === 'temporary' || root.child('roomAccess').child($roomId).child('type').val() === 'fixed')",
           "$slot": {
-            ".read": "auth != null && (data.parent().parent().child('metadata').child('type').val() === 'temporary' || root.child('roomAccess').child($roomId).child('members').child(auth.uid).val() === true)",
-            ".write": "auth != null && $slot.matches(/^[0-3]$/) && root.child('roomSessions').child($roomId).child('metadata').child('status').val() === 'active' && (root.child('roomSessions').child($roomId).child('metadata').child('type').val() === 'temporary' || root.child('roomAccess').child($roomId).child('members').child(auth.uid).val() === true) && (!data.exists() || data.child('uid').val() === auth.uid)",
-            ".validate": "!newData.exists() || (newData.hasChildren(['uid', 'nickname', 'joinedAt']) && newData.child('uid').val() === auth.uid && newData.child('nickname').isString() && newData.child('nickname').val().length >= 2 && newData.child('nickname').val().length <= 24 && newData.child('joinedAt').isNumber())"
+            ".read": "auth != null && (data.parent().parent().child('metadata').child('type').val() === 'temporary' || root.child('roomAccess').child($roomId).child('type').val() === 'fixed')",
+            ".write": "auth != null && $slot.matches(/^[0-3]$/) && root.child('roomSessions').child($roomId).child('metadata').child('status').val() === 'active' && (root.child('roomSessions').child($roomId).child('metadata').child('type').val() === 'temporary' || root.child('roomAccess').child($roomId).child('type').val() === 'fixed') && (!data.exists() || data.child('uid').val() === auth.uid)",
+            ".validate": "!newData.exists() || (newData.hasChildren(['uid', 'connectionId', 'nickname', 'joinedAt']) && newData.child('uid').val() === auth.uid && newData.child('connectionId').isString() && newData.child('connectionId').val().length >= 16 && newData.child('connectionId').val().length <= 64 && newData.child('nickname').isString() && newData.child('nickname').val().length >= 2 && newData.child('nickname').val().length <= 24 && newData.child('joinedAt').isNumber())"
+          }
+        },
+        "signaling": {
+          "$sessionId": {
+            "$pairId": {
+              ".read": "auth != null && root.child('roomSessions').child($roomId).child('metadata').child('status').val() === 'active' && root.child('roomSessions').child($roomId).child('metadata').child('sessionId').val() === $sessionId && (root.child('roomSessions').child($roomId).child('activeMembers/0/uid').val() === auth.uid || root.child('roomSessions').child($roomId).child('activeMembers/1/uid').val() === auth.uid || root.child('roomSessions').child($roomId).child('activeMembers/2/uid').val() === auth.uid || root.child('roomSessions').child($roomId).child('activeMembers/3/uid').val() === auth.uid)",
+              "$senderUid": {
+                "$connectionId": {
+                  ".write": "auth != null && auth.uid === $senderUid && ((!newData.exists()) || (root.child('roomSessions').child($roomId).child('metadata').child('status').val() === 'active' && root.child('roomSessions').child($roomId).child('metadata').child('sessionId').val() === $sessionId && ((root.child('roomSessions').child($roomId).child('activeMembers/0/uid').val() === auth.uid && root.child('roomSessions').child($roomId).child('activeMembers/0/connectionId').val() === $connectionId) || (root.child('roomSessions').child($roomId).child('activeMembers/1/uid').val() === auth.uid && root.child('roomSessions').child($roomId).child('activeMembers/1/connectionId').val() === $connectionId) || (root.child('roomSessions').child($roomId).child('activeMembers/2/uid').val() === auth.uid && root.child('roomSessions').child($roomId).child('activeMembers/2/connectionId').val() === $connectionId) || (root.child('roomSessions').child($roomId).child('activeMembers/3/uid').val() === auth.uid && root.child('roomSessions').child($roomId).child('activeMembers/3/connectionId').val() === $connectionId))))",
+                  "$signalId": {
+                    ".validate": "newData.hasChildren(['sessionId', 'fromUid', 'toUid', 'fromConnectionId', 'toConnectionId', 'kind', 'createdAt']) && newData.child('sessionId').val() === $sessionId && newData.child('fromUid').val() === $senderUid && newData.child('fromUid').val() === auth.uid && newData.child('fromConnectionId').val() === $connectionId && newData.child('toUid').isString() && newData.child('toUid').val() !== auth.uid && newData.child('toConnectionId').isString() && newData.child('createdAt').isNumber() && ((root.child('roomSessions').child($roomId).child('activeMembers/0/uid').val() === newData.child('toUid').val() && root.child('roomSessions').child($roomId).child('activeMembers/0/connectionId').val() === newData.child('toConnectionId').val()) || (root.child('roomSessions').child($roomId).child('activeMembers/1/uid').val() === newData.child('toUid').val() && root.child('roomSessions').child($roomId).child('activeMembers/1/connectionId').val() === newData.child('toConnectionId').val()) || (root.child('roomSessions').child($roomId).child('activeMembers/2/uid').val() === newData.child('toUid').val() && root.child('roomSessions').child($roomId).child('activeMembers/2/connectionId').val() === newData.child('toConnectionId').val()) || (root.child('roomSessions').child($roomId).child('activeMembers/3/uid').val() === newData.child('toUid').val() && root.child('roomSessions').child($roomId).child('activeMembers/3/connectionId').val() === newData.child('toConnectionId').val())) && ((newData.child('kind').val() === 'description' && newData.child('description').hasChildren(['type', 'sdp']) && newData.child('description').child('type').val().matches(/^(offer|answer)$/) && newData.child('description').child('sdp').isString() && !newData.child('candidate').exists()) || (newData.child('kind').val() === 'candidate' && newData.child('candidate').child('candidate').isString() && !newData.child('description').exists()))",
+                    "sessionId": { ".validate": "newData.val() === $sessionId" },
+                    "fromUid": { ".validate": "newData.val() === $senderUid && newData.val() === auth.uid" },
+                    "fromConnectionId": { ".validate": "newData.val() === $connectionId" },
+                    "toUid": { ".validate": "newData.isString() && newData.val() !== auth.uid" },
+                    "toConnectionId": { ".validate": "newData.isString()" },
+                    "kind": { ".validate": "newData.val() === 'description' || newData.val() === 'candidate'" },
+                    "createdAt": { ".validate": "newData.isNumber()" },
+                    "description": {
+                      ".validate": "newData.hasChildren(['type', 'sdp']) && newData.child('type').val().matches(/^(offer|answer)$/) && newData.child('sdp').isString()",
+                      "type": { ".validate": "newData.val() === 'offer' || newData.val() === 'answer'" },
+                      "sdp": { ".validate": "newData.isString()" },
+                      "$other": { ".validate": false }
+                    },
+                    "candidate": {
+                      ".validate": "newData.child('candidate').isString()",
+                      "candidate": { ".validate": "newData.isString()" },
+                      "sdpMid": { ".validate": "newData.isString() || !newData.exists()" },
+                      "sdpMLineIndex": { ".validate": "newData.isNumber() || !newData.exists()" },
+                      "usernameFragment": { ".validate": "newData.isString() || !newData.exists()" },
+                      "$other": { ".validate": false }
+                    },
+                    "$other": { ".validate": false }
+                  }
+                }
+              }
+            }
           }
         },
         "presence": {
-          ".read": "auth != null && (root.child('roomAccess').child($roomId).child('members').child(auth.uid).val() === true || data.child(auth.uid).exists())",
+          ".read": "auth != null",
           "$uid": {
-            ".read": "auth != null && (auth.uid === $uid || root.child('roomAccess').child($roomId).child('members').child(auth.uid).val() === true || root.child('roomSessions').child($roomId).child('activeMembers/0/uid').val() === auth.uid || root.child('roomSessions').child($roomId).child('activeMembers/1/uid').val() === auth.uid || root.child('roomSessions').child($roomId).child('activeMembers/2/uid').val() === auth.uid || root.child('roomSessions').child($roomId).child('activeMembers/3/uid').val() === auth.uid)",
+            ".read": "auth != null",
             ".write": "auth != null && auth.uid === $uid && (!newData.exists() || root.child('roomSessions').child($roomId).child('activeMembers/0/uid').val() === auth.uid || root.child('roomSessions').child($roomId).child('activeMembers/1/uid').val() === auth.uid || root.child('roomSessions').child($roomId).child('activeMembers/2/uid').val() === auth.uid || root.child('roomSessions').child($roomId).child('activeMembers/3/uid').val() === auth.uid)",
             ".validate": "!newData.exists() || (newData.hasChildren(['uid', 'connected', 'lastSeenAt']) && newData.child('uid').val() === $uid && newData.child('connected').val() === true && newData.child('lastSeenAt').isNumber())"
           }

@@ -39,22 +39,22 @@ export function HomePage() {
       <section aria-label="Oda özellikleri" className="quick-stats">
         <div className="quick-stat"><span className="stat-icon stat-icon--purple"><UsersRound size={17} /></span><div><strong>4 kişiye kadar</strong><span>Bir odada aynı anda</span></div><span className="stat-index">01</span></div>
         <div className="quick-stat"><span className="stat-icon stat-icon--green"><Radio size={17} /></span><div><strong>Geçici veya sabit</strong><span>Oda yaşam döngüsü</span></div><span className="stat-index">02</span></div>
-        <div className="quick-stat"><span className="stat-icon stat-icon--blue"><Clock3 size={17} /></span><div><strong>Üyelik kontrollü</strong><span>Sabit odalara yetkili erişim</span></div><span className="stat-index">03</span></div>
+        <div className="quick-stat"><span className="stat-icon stat-icon--blue"><Clock3 size={17} /></span><div><strong>Davet koduyla katılım</strong><span>Oda kodu olanlar katılabilir</span></div><span className="stat-index">03</span></div>
       </section>
 
       <section className="rooms-section" id="rooms">
         <div className="section-heading">
-          <div><p className="eyebrow">KALICI ODALAR</p><h2>Odalarım</h2><p className="section-subtitle">Sana yetki verilmiş sabit odalar burada görünür.</p></div>
+          <div><p className="eyebrow">KALICI ODALAR</p><h2>Odalarım</h2><p className="section-subtitle">Oluşturduğun sabit odalar burada görünür.</p></div>
           <Button icon={<ArrowUpRight size={15} />} onClick={() => openModal('create-room')} variant="subtle">Yeni oda</Button>
         </div>
         {status === 'loading' && <p className="section-subtitle" role="status">Oda listesi yükleniyor…</p>}
         {status === 'error' && <p className="auth-form-error" role="alert">{error} <button className="text-action" onClick={() => void loadRooms(true)} type="button">Yeniden dene</button></p>}
-        {status === 'ready' && rooms.length === 0 && <div className="room-empty-state">Henüz sabit bir odaya yetkin yok. Davet koduyla geçici bir odaya katılabilir veya yeni oda oluşturabilirsin.</div>}
+        {status === 'ready' && rooms.length === 0 && <div className="room-empty-state">Henüz oluşturduğun sabit bir oda yok. Yeni oda oluşturabilir veya davet koduyla bir odaya katılabilirsin.</div>}
         <div className="room-grid">
           {rooms.map((room, index) => (
             <button className="room-card" key={room.id} onClick={() => navigate(`/rooms/${room.id}`)} type="button">
               <div className={`room-card-icon room-card-icon--${index % 2 ? 'mint' : 'violet'}`}><LockKeyhole size={19} /></div>
-              <div className="room-card-main"><span className="room-status"><i />{room.isPinned ? 'Sabitleşti' : 'Sabit oda'}</span><h3>{room.name}</h3><p>Sabit oda <span>·</span> Yetkili üye</p></div>
+              <div className="room-card-main"><span className="room-status"><i />Sabit oda</span><h3>{room.name}</h3><p>Sabit oda <span>·</span> Oda koduyla katılım</p></div>
               <div className="room-card-footer"><span><UsersRound size={14} /> Odaya katıl</span><span>›</span></div>
             </button>
           ))}

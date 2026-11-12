@@ -15,15 +15,9 @@ export type FixedRoomDocument = {
   updatedAt: Timestamp
 }
 
-export type FixedRoomMemberDocument = {
-  uid: string
-  authorizedBy: string
-  authorizedAt: Timestamp
-}
-
 export type RoomType = 'temporary' | 'fixed'
 
-/** RTDB mirror of Firestore fixed-room membership; it is not atomic with Firestore. */
+/** RTDB room metadata mirror; the legacy host member key is retained for schema validation only. */
 export type RoomAccessMirror = {
   hostUid: string
   type: RoomType
@@ -41,6 +35,7 @@ export type RoomSessionMetadata = {
 
 export type RoomActiveMember = {
   uid: string
+  connectionId: string
   nickname: string
   joinedAt: number
 }

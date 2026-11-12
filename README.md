@@ -28,9 +28,9 @@ Giriş ekranında e-posta/şifreyle hesap oluşturma ve giriş seçenekleri bulu
 
 ## Firebase Rules
 
-Firestore erişimi `fixedRooms/{roomId}/members/{uid}` kayıtlarıyla doğrulanır. RTDB kuralları Firestore belgelerini sorgulayamadığı için oda sahibi, üyelik listesinin bir aynasını `roomAccess/{roomId}` altında tutar. Firestore üyelik kaydı ile RTDB aynası atomik güncellenemez; yeni üyeye RTDB erişimi ancak ayna yazıldıktan sonra açılır. Erişim kaldırırken önce RTDB aynası güncellenmelidir. İstemci/sunucu kesintisi iki tarafta geçici farklılık bırakabilir; işlemler tekrar denenmelidir.
+Sabit odanın 32 karakterli oda kodu erişim anahtarıdır. Oturum açmış ve kodu bilen kullanıcı sabit oda verisini ve sohbeti okuyabilir; oda listesi yalnızca oda sahibinin `hostUid` sorgusuna açıktır. RTDB oda oturumunu ve signaling verisini `sessionId` ile ayırır. Signaling yazıları gönderen UID ve aktif bağlantı kimliğine bağlanır; eski bağlantı kimliğinden kalan sinyaller yeni bağlantıda kullanılmaz. Canlı Firebase’de kurallar değiştiğinde hem Firestore hem RTDB Rules yayımlanmalıdır.
 
-RTDB aynasının ilk kaydını oturum açmış bir istemci kendi UID'sini host olarak yazar. Firebase Rules, bu UID'nin Firestore'daki host UID ile aynı olduğunu doğrulayamaz. Bu Spark planı tercihi nedeniyle, RTDB oda kimliğini bilen oturum açmış bir istemci aynayı ilk oluşturan kişi olabilir. Sabit oda verisi Firestore kurallarıyla ayrıca korunur; RTDB verisi için bu kabul edilmiş sınırlama geçerlidir.
+Oda kodunu bilen oturum açmış bir kullanıcı, oda aktifken katılabilir. Sabit oda oturumu host uygulamadan ayrılınca kapanır; host tekrar katılarak oturumu açar. RTDB `onDisconnect` temizliği beklenmedik kapanma ve ağ kesintilerinde garanti değildir.
 
 ## Oda yaşam döngüsü (PHASE 04)
 
@@ -38,7 +38,7 @@ Oda kodu 32 karakterli rastgele kimliktir; oda bağlantısı `/rooms/{oda-kodu}`
 
 Kapasite, `activeMembers/0..3` altındaki dört RTDB yuvasıyla sınırlandırılır. Her katılım bir yuvada atomik transaction kullanır; aynı UID tekrar katılırsa kendi yuvası güncellenir. Bağlantı kesilince `onDisconnect` yuva ve presence kayıtlarını temizlemeyi dener. Spark planında istemci temizliği beklenmedik kapanma ve ağ kesintilerinde garanti değildir; bu nedenle eski aktif kayıtlar kalabilir. Host oda ekranından ayrılma temizliğini başlatır.
 
-Geçici odayı sabitlemek Firestore sabit oda kaydını oluşturur, o anki aktif UID'leri kalıcı yetkili üye olarak ekler ve ardından RTDB aynası ile oturum türünü günceller. Firestore ve RTDB işlemleri tek transaction değildir; arada hata olursa sabit oda kaydı ile RTDB aynası geçici olarak farklı kalabilir. İşlem hata gösterirse durumu Firebase Console'da kontrol edip tekrar deneyin.
+Geçici odayı sabitlemek Firestore sabit oda kaydını oluşturur; ardından RTDB oturumunun türünü günceller. Firestore ve RTDB işlemleri tek transaction değildir; arada hata olursa kayıtlar geçici olarak farklı kalabilir. İşlem hata gösterirse Firebase Console'daki kayıtları kontrol edip tekrar deneyin.
 
 ## Yazılı sohbet (PHASE 05)
 
@@ -47,3 +47,9 @@ Geçici oda mesajları açık RTDB oturumunun altında saklanır ve oda kapanın
 Rules testlerini Firebase Emulator Suite ile çalıştırın: `npm run test:rules`. Emulator kuralları `firestore.rules` ve `database.rules.json` dosyalarından yüklenir; testler `demo-escord` sahte proje kimliğini kullanır ve Firebase projesine bağlanmaz.
 
 Rules dosyalarını gerçek Firebase projesine yüklemeden önce testler geçmelidir. Doğrulama sonrası proje kökünde `firebase deploy --project escord-7ab3b --only firestore:rules,database` komutu kullanılabilir. Bu komut gerçek Firebase güvenlik kurallarını değiştirir; yayınlamadan önce dosyaları gözden geçirin.
+
+## WebRTC bağlantı testi (PHASE 06)
+
+Odaya katılan her istemci bir `connectionId` üretir. Her katılımcı çifti için UID'si alfabetik olarak önce gelen taraf offer başlatır; diğer taraf answer verir. Offer/answer ve ICE candidate kayıtları Firebase RTDB'de oda oturum kimliği, katılımcı çifti ve bağlantı kimlikleriyle tutulur. Bağlantı kaydı kapanınca istemci kendi sinyal dalını temizler; kopma durumunda RTDB `onDisconnect` yedek temizlik sağlar.
+
+Bu aşamada medya gönderilmez. `escord-connectivity-test` DataChannel'ı otomatik ping/pong mesajıyla doğrulanır; oda kartında bağlantı durumu ve yaklaşık RTT gösterilir. ICE restart bir kez denenir. Testte Google'ın halka açık `stun.l.google.com:19302` ve `stun1.l.google.com:19302` adresleri kullanılır. STUN bağlantı yolunu bulmaya yardımcı olur; TURN olmadığı için bazı NAT/firewall koşullarında P2P bağlantısı yine kurulamayabilir.

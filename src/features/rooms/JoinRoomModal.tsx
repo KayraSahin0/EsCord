@@ -29,7 +29,7 @@ export function JoinRoomModal() {
       <form className="modal-form" onSubmit={submit}>
         <label className="field-label" htmlFor="room-code">Davet kodu</label>
         <div className="input-with-icon"><Link2 aria-hidden="true" size={17} /><input autoFocus className="text-input" id="room-code" onChange={(event) => setRoomCode(event.target.value)} placeholder="Oda kodu veya davet bağlantısı" value={roomCode} /></div>
-        <div className="join-hint"><UsersRound size={16} /><span>Sabit odalara yalnızca önceden yetkilendirilmiş hesaplar katılabilir.</span></div>
+        <div className="join-hint"><UsersRound size={16} /><span>Sabit odaya katılmak için oturum açmış olmanız ve davet koduna sahip olmanız yeterlidir.</span></div>
         {error && <p className="auth-form-error" role="alert">{error}</p>}
         <div className="modal-actions">
           <Button onClick={closeModal} type="button" variant="ghost">Vazgeç</Button>

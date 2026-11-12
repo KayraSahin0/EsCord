@@ -17,6 +17,7 @@ import { useRoomStore } from '../../stores/roomStore'
 export function Sidebar() {
   const openModal = useUiStore((state) => state.openModal)
   const nickname = useAuthStore((state) => state.profile?.nickname ?? 'Misafir')
+  const isAnonymous = useAuthStore((state) => state.profile?.isAnonymous ?? true)
   const rooms = useRoomStore((state) => state.fixedRooms)
   const loadRooms = useRoomStore((state) => state.loadFixedRooms)
 
@@ -65,7 +66,7 @@ export function Sidebar() {
           <div className="avatar avatar--you">{getNicknameInitial(nickname)}</div>
           <div className="sidebar-user-copy">
             <strong>{nickname}</strong>
-            <span>Anonim hesap</span>
+            <span>{isAnonymous ? 'Anonim hesap' : 'E-posta hesabı'}</span>
           </div>
           <span className="online-dot" aria-label="Çevrimiçi" />
         </div>

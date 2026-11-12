@@ -6,7 +6,7 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing'
-import { collection, collectionGroup, doc, getDoc, getDocs, query, runTransaction as runFirestoreTransaction, serverTimestamp, setDoc, updateDoc, where, writeBatch, type Firestore } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, query, runTransaction as runFirestoreTransaction, serverTimestamp, setDoc, updateDoc, where, writeBatch, type Firestore } from 'firebase/firestore'
 import { get, ref, runTransaction, set } from 'firebase/database'
 
 const projectId = 'demo-escord'
@@ -48,10 +48,10 @@ async function seedRoomData() {
       type: 'fixed', hostUid: 'host', status: 'active', sessionId: 'seed', createdAt: Date.now(), name: 'Test Room',
     })
     await set(ref(context.database(), `roomSessions/${roomId}/activeMembers/0`), {
-      uid: 'host', nickname: 'Host', joinedAt: Date.now(),
+      uid: 'host', connectionId: 'host-connection-0001', nickname: 'Host', joinedAt: Date.now(),
     })
     await set(ref(context.database(), `roomSessions/${roomId}/activeMembers/1`), {
-      uid: 'member', nickname: 'Member', joinedAt: Date.now(),
+      uid: 'member', connectionId: 'member-connection-0001', nickname: 'Member', joinedAt: Date.now(),
     })
   })
 }
@@ -90,25 +90,20 @@ describe('Firebase Security Rules emülatör testleri', () => {
     await assertFails(updateDoc(doc(stranger, 'profiles', 'member'), { nickname: 'Other' }))
   })
 
-  it('sabit oda metadata ve üye kayıtlarını oda üyeliğine ve host yetkisine bağlar', async () => {
+  it('sabit oda kodu oturum açmış kullanıcılara erişim verir, yönetimi host ile sınırlar', async () => {
     await seedRoomData()
     const member = testEnvironment.authenticatedContext('member').firestore()
     const stranger = testEnvironment.authenticatedContext('stranger').firestore()
     const host = passwordContext('host').firestore()
 
     await assertSucceeds(getDoc(doc(member, 'fixedRooms', roomId)))
-    await assertFails(getDoc(doc(stranger, 'fixedRooms', roomId)))
+    await assertSucceeds(getDoc(doc(stranger, 'fixedRooms', roomId)))
     await assertFails(getDoc(doc(testEnvironment.unauthenticatedContext().firestore(), 'fixedRooms', roomId)))
-    await assertFails(setDoc(doc(stranger, 'fixedRooms', roomId, 'members', 'stranger'), {
-      uid: 'stranger', authorizedBy: 'stranger', authorizedAt: serverTimestamp(),
-    }))
-    await assertSucceeds(setDoc(doc(host, 'fixedRooms', roomId, 'members', 'guest'), {
-      uid: 'guest', authorizedBy: 'host', authorizedAt: serverTimestamp(),
-    }))
     await assertFails(updateDoc(doc(member, 'fixedRooms', roomId), { isPinned: true, updatedAt: serverTimestamp() }))
+    await assertSucceeds(updateDoc(doc(host, 'fixedRooms', roomId), { isPinned: true, updatedAt: serverTimestamp() }))
   })
 
-  it('RTDB oda oturumunu aynadaki üyelerle sınırlar ve host yazımını korur', async () => {
+  it('RTDB sabit odaya oda kodunu bilen oturum açmış kullanıcıyı alır, host yazımını korur', async () => {
     await seedRoomData()
     const member = testEnvironment.authenticatedContext('member').database()
     const stranger = testEnvironment.authenticatedContext('stranger').database()
@@ -116,12 +111,11 @@ describe('Firebase Security Rules emülatör testleri', () => {
     const sessionPath = `roomSessions/${roomId}/activeMembers`
 
     await assertSucceeds(get(ref(member, sessionPath)))
-    await assertFails(get(ref(stranger, sessionPath)))
+    await assertSucceeds(get(ref(stranger, sessionPath)))
     await assertFails(get(ref(unauthenticated, sessionPath)))
     await assertFails(set(ref(member, `${sessionPath}/0`), { uid: 'stranger', nickname: 'Other', joinedAt: Date.now() }))
-    await assertSucceeds(set(ref(member, `${sessionPath}/2`), { uid: 'member', nickname: 'Member', joinedAt: Date.now() }))
-    await assertFails(set(ref(stranger, `${sessionPath}/3`), { uid: 'stranger', nickname: 'Stranger', joinedAt: Date.now() }))
-    await assertSucceeds(set(ref(testEnvironment.authenticatedContext('host').database(), `${sessionPath}/3`), { uid: 'host', nickname: 'Host', joinedAt: Date.now() }))
+    await assertSucceeds(set(ref(member, `${sessionPath}/2`), { uid: 'member', connectionId: 'member-connection-0002', nickname: 'Member', joinedAt: Date.now() }))
+    await assertSucceeds(set(ref(stranger, `${sessionPath}/3`), { uid: 'stranger', connectionId: 'stranger-connection-0001', nickname: 'Stranger', joinedAt: Date.now() }))
     await assertFails(set(ref(member, `roomAccess/${roomId}/members/guest`), true))
     await assertSucceeds(set(ref(passwordContext('host').database(), `roomAccess/${roomId}/members/guest`), true))
   })
@@ -135,17 +129,13 @@ describe('Firebase Security Rules emülatör testleri', () => {
     })).resolves.toBeUndefined()
   })
 
-  it('Firestore oda ve host üyeliğinin aynı batch içinde kurulmasına izin verir', async () => {
+  it('Firestore sabit oda kaydının tek başına oluşturulmasına izin verir', async () => {
     const host = passwordContext('new-host').firestore()
     const batch = writeBatch(host)
     batch.set(doc(host, 'fixedRooms', 'new-room'), {
       name: 'New Room', hostUid: 'new-host', isPinned: false,
       createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     })
-    batch.set(doc(host, 'fixedRooms', 'new-room', 'members', 'new-host'), {
-      uid: 'new-host', authorizedBy: 'new-host', authorizedAt: serverTimestamp(),
-    })
-
     await assertSucceeds(batch.commit())
   })
 
@@ -158,8 +148,6 @@ describe('Firebase Security Rules emülatör testleri', () => {
         name: 'Fixed Room', hostUid: id.startsWith('anonymous') ? 'anonymous-owner' : 'email-owner', isPinned: false,
         createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
       })
-      const uid = id.startsWith('anonymous') ? 'anonymous-owner' : 'email-owner'
-      batch.set(doc(database, 'fixedRooms', id, 'members', uid), { uid, authorizedBy: uid, authorizedAt: serverTimestamp() })
       return batch.commit()
     }
 
@@ -175,13 +163,40 @@ describe('Firebase Security Rules emülatör testleri', () => {
     await assertSucceeds(set(ref(emailUser, 'roomAccess/email-fixed'), mirror('email-owner')))
   })
 
-  it('sabit oda listesi yalnızca sorguyu yapan UID için üyelik döndürür', async () => {
+  it('signaling yalnızca aktif oda bağlantıları arasında ve doğru connectionId ile yazılabilir', async () => {
     await seedRoomData()
-    const member = testEnvironment.authenticatedContext('member').firestore()
+    const host = passwordContext('host').database()
+    const member = testEnvironment.authenticatedContext('member').database()
+    const stranger = testEnvironment.authenticatedContext('stranger').database()
+    const pairPath = `roomSessions/${roomId}/signaling/seed/host~member`
+    const offer = {
+      sessionId: 'seed',
+      fromUid: 'host',
+      toUid: 'member',
+      fromConnectionId: 'host-connection-0001',
+      toConnectionId: 'member-connection-0001',
+      kind: 'description',
+      description: { type: 'offer', sdp: 'test-sdp' },
+      createdAt: Date.now(),
+    }
+
+    await assertSucceeds(set(ref(host, `${pairPath}/host/host-connection-0001/offer-one`), offer))
+    await assertSucceeds(get(ref(member, pairPath)))
+    await assertFails(get(ref(stranger, pairPath)))
+    await assertFails(set(ref(host, `${pairPath}/host/host-connection-0001/stale-offer`), {
+      ...offer,
+      toConnectionId: 'stale-member-connection',
+    }))
+    await assertFails(set(ref(host, `roomSessions/${roomId}/signaling/old-session/host~member/host/host-connection-0001/old`), offer))
+  })
+
+  it('sabit oda listesi yalnızca oda sahibinin hostUid sorgusuyla listelenebilir', async () => {
+    await seedRoomData()
+    const host = passwordContext('host').firestore()
     const stranger = testEnvironment.authenticatedContext('stranger').firestore()
-    const memberResults = await getDocs(query(collectionGroup(member, 'members'), where('uid', '==', 'member')))
-    expect(memberResults.size).toBe(1)
-    await assertFails(getDocs(query(collectionGroup(stranger, 'members'), where('uid', '==', 'member'))))
+    const hostResults = await getDocs(query(collection(host, 'fixedRooms'), where('hostUid', '==', 'host')))
+    expect(hostResults.size).toBe(1)
+    await assertFails(getDocs(query(collection(stranger, 'fixedRooms'), where('hostUid', '==', 'host'))))
   })
 
   it('dört slot paralel katılımda sınırı aşmaz ve beşinci kullanıcıyı reddeder', async () => {
@@ -192,7 +207,7 @@ describe('Firebase Security Rules emülatör testleri', () => {
         type: 'temporary', hostUid: 'owner', status: 'active', sessionId: 'session', createdAt: Date.now(), name: 'Capacity',
       })
       await set(ref(context.database(), `roomSessions/${room}/activeMembers/0`), {
-        uid: 'owner', nickname: 'Owner', joinedAt: Date.now(),
+        uid: 'owner', connectionId: 'owner-connection-0001', nickname: 'Owner', joinedAt: Date.now(),
       })
     })
 
@@ -201,7 +216,7 @@ describe('Firebase Security Rules emülatör testleri', () => {
       for (const slot of ['1', '2', '3']) {
         const result = await runTransaction(ref(database, `roomSessions/${room}/activeMembers/${slot}`), (current) => {
           if (current) return
-          return { uid, nickname: uid, joinedAt: Date.now() }
+          return { uid, connectionId: `${uid}-connection-0001`, nickname: uid, joinedAt: Date.now() }
         }, { applyLocally: false })
         if (result.committed) return true
       }
@@ -233,7 +248,7 @@ describe('Firebase Security Rules emülatör testleri', () => {
         type: 'temporary', hostUid: 'host', status: 'active', sessionId: 'active', createdAt: Date.now(), name: 'Temporary',
       })
       await set(ref(context.database(), `roomSessions/${temporaryRoom}/activeMembers/0`), {
-        uid: 'member', nickname: 'Member', joinedAt: Date.now(),
+        uid: 'member', connectionId: 'member-connection-0001', nickname: 'Member', joinedAt: Date.now(),
       })
     })
     const member = testEnvironment.authenticatedContext('member').database()
@@ -250,8 +265,10 @@ describe('Firebase Security Rules emülatör testleri', () => {
     const database = passwordContext('host').firestore()
     const stateRef = doc(database, 'fixedRooms', roomId, 'chatMeta', 'state')
     const messagesRef = collection(database, 'fixedRooms', roomId, 'messages')
-    const strangerMessages = collection(testEnvironment.authenticatedContext('stranger').firestore(), 'fixedRooms', roomId, 'messages')
-    await assertFails(getDocs(strangerMessages))
+    // Fixed room codes are invitation capabilities: any signed-in user who
+    // knows the code can read the room's shared chat.
+    const invitedMessages = collection(testEnvironment.authenticatedContext('stranger').firestore(), 'fixedRooms', roomId, 'messages')
+    await assertSucceeds(getDocs(invitedMessages))
     for (let index = 0; index < 101; index += 1) {
       await runFirestoreTransaction(database, async (transaction) => {
         const stateSnapshot = await transaction.get(stateRef)

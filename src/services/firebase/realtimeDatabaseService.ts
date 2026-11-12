@@ -15,7 +15,7 @@ import { firebaseApp, firebaseAuth, firebaseDatabaseURL } from './app'
 import { requireFirebaseService, wrapFirebaseError } from './firebaseError'
 import type { RoomAccessMirror, RoomActiveMember, RoomSessionMetadata, RoomType } from './models'
 
-const firebaseDatabase = firebaseApp && firebaseDatabaseURL
+export const firebaseDatabase = firebaseApp && firebaseDatabaseURL
   ? getDatabase(firebaseApp, firebaseDatabaseURL)
   : null
 
@@ -138,12 +138,13 @@ export async function readRoomActiveMembers(roomId: string): Promise<RoomActiveM
   }
 }
 
-export async function joinActiveRoomSession(roomId: string, nickname: string): Promise<void> {
+export async function joinActiveRoomSession(roomId: string, nickname: string): Promise<string> {
   const database = requireFirebaseService(firebaseDatabase, 'realtime-database')
   const uid = firebaseAuth?.currentUser?.uid
   if (!uid) throw new Error('Firebase Authentication oturumu açık değil.')
 
   const presenceRef = ref(database, `roomSessions/${roomId}/presence/${uid}`)
+  const connectionId = globalThis.crypto.randomUUID().replaceAll('-', '').toLowerCase()
   const presenceDisconnect = onDisconnect(presenceRef)
   let memberRef: ReturnType<typeof ref> | null = null
   let memberDisconnect: ReturnType<typeof onDisconnect> | null = null
@@ -155,7 +156,7 @@ export async function joinActiveRoomSession(roomId: string, nickname: string): P
       const result = await runTransaction(candidateRef, (current) => {
         if (current && (current as RoomActiveMember).uid !== uid) return
         const previous = current as RoomActiveMember | null
-        return { uid, nickname, joinedAt: previous?.joinedAt ?? Date.now() }
+        return { uid, connectionId, nickname, joinedAt: previous?.joinedAt ?? Date.now() }
       }, { applyLocally: false })
       if (result.committed) {
         memberRef = candidateRef
@@ -166,6 +167,7 @@ export async function joinActiveRoomSession(roomId: string, nickname: string): P
     }
     if (!memberRef) throw new Error('Oda kapasitesine ulaşıldı. En fazla 4 kişi katılabilir.')
     await set(presenceRef, { uid, connected: true, lastSeenAt: Date.now() })
+    return connectionId
   } catch (error) {
     await Promise.allSettled([
       memberDisconnect?.cancel() ?? Promise.resolve(),
