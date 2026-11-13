@@ -53,3 +53,14 @@ Rules dosyalarını gerçek Firebase projesine yüklemeden önce testler geçmel
 Odaya katılan her istemci bir `connectionId` üretir. Her katılımcı çifti için UID'si alfabetik olarak önce gelen taraf offer başlatır; diğer taraf answer verir. Offer/answer ve ICE candidate kayıtları Firebase RTDB'de oda oturum kimliği, katılımcı çifti ve bağlantı kimlikleriyle tutulur. Bağlantı kaydı kapanınca istemci kendi sinyal dalını temizler; kopma durumunda RTDB `onDisconnect` yedek temizlik sağlar.
 
 Bu aşamada medya gönderilmez. `escord-connectivity-test` DataChannel'ı otomatik ping/pong mesajıyla doğrulanır; oda kartında bağlantı durumu ve yaklaşık RTT gösterilir. ICE restart bir kez denenir. Testte Google'ın halka açık `stun.l.google.com:19302` ve `stun1.l.google.com:19302` adresleri kullanılır. STUN bağlantı yolunu bulmaya yardımcı olur; TURN olmadığı için bazı NAT/firewall koşullarında P2P bağlantısı yine kurulamayabilir.
+
+## GitHub Pages yayını (PHASE 12)
+
+Vite base yolu GitHub repository adı `EsCord` olarak ayarlanmıştır; uygulama `HashRouter` kullanır, bu yüzden sayfa yenileme ve `/rooms/...` davetleri Pages üzerinde çalışır. GitHub Pages adresi `https://kayrasahin0.github.io/EsCord/` biçimindedir.
+
+1. GitHub repository **KayraSahin0/EsCord → Settings → Secrets and variables → Actions → Variables** sayfasına şu değişkenleri ekleyin: `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`, `VITE_FIREBASE_DATABASE_URL`. Değerleri Firebase Project settings → General → Web App yapılandırmasından alın; RTDB URL’sini Realtime Database sayfasından alın. Web Firebase config tarayıcıya dahil edilir; service account/private key eklemeyin.
+2. Repository **Settings → Pages → Build and deployment → Source** bölümünde **GitHub Actions** seçin.
+3. Firebase Console’da **Authentication → Settings → Authorized domains → Add domain** alanına `kayrasahin0.github.io` ekleyin.
+4. `.github/workflows/deploy.yml` dosyasını `main` dalına gönderin veya Actions sekmesinden **Deploy EsCord to GitHub Pages → Run workflow** çalıştırın. Build ve deploy başarılı olunca Actions deployment URL’sini açın.
+
+Yayın kontrolü: ana sayfayı ve `#/rooms/{oda-kodu}` yönlendirmesini yenileyin; anonim/e-posta girişi, veritabanları, kamera/mikrofon izinleri ve HTTPS P2P bağlantısını iki ve dört istemciyle test edin. Ekran paylaşımı bilinen açık sorundur ve bu doğrulama kapsamı dışında bırakılmıştır.

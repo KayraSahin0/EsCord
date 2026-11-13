@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { Unsubscribe } from '@firebase/database'
 import { useAudioStore } from './audioStore'
 import { useVideoStore } from './videoStore'
+import { useScreenShareStore } from './screenShareStore'
 import { firebaseAuth } from '../services/firebase/app'
 import { getFirebaseErrorMessage } from '../services/firebase/firebaseError'
 import { createPeerConnectionManager, type PeerConnectionManager, type PeerConnectionStatus } from '../services/webrtc/peerConnectionManager'
@@ -30,6 +31,7 @@ type RoomState = {
   activeMembers: RoomActiveMember[]
   peerConnections: PeerConnectionStatus[]
   remoteMediaStreams: Record<string, MediaStream>
+  remoteScreenStreams: Record<string, MediaStream>
   activeRoomStatus: ActiveRoomStatus
   activeRoomError: string | null
   loadFixedRooms: (force?: boolean) => Promise<void>
@@ -39,6 +41,7 @@ type RoomState = {
   pinCurrentRoom: () => Promise<void>
   setLocalAudioStream: (stream: MediaStream | null) => Promise<void>
   setLocalVideoStream: (stream: MediaStream | null) => Promise<void>
+  setLocalScreenStream: (stream: MediaStream | null) => Promise<void>
   deleteFixedRoom: (roomId: string) => Promise<void>
 }
 
@@ -71,6 +74,7 @@ export const useRoomStore = create<RoomState>((set, get) => {
     await lease.peerManager?.close()
     useAudioStore.getState().stopMicrophone()
     useVideoStore.getState().stopCamera()
+    useScreenShareStore.getState().stopScreenShare()
     for (const unsubscribe of lease.unsubscribers) unsubscribe()
     if (lease.joined) {
       try {
@@ -86,6 +90,7 @@ export const useRoomStore = create<RoomState>((set, get) => {
         activeMembers: [],
         peerConnections: [],
         remoteMediaStreams: {},
+        remoteScreenStreams: {},
         activeRoomStatus: terminalStatus,
         activeRoomError: terminalStatus === 'closed' ? 'Oda sahibi oturumu kapattı.' : null,
       })
@@ -112,6 +117,13 @@ export const useRoomStore = create<RoomState>((set, get) => {
           else delete remoteMediaStreams[uid]
           return { remoteMediaStreams }
         }),
+        onRemoteScreenStream: (uid, stream) => set((state) => {
+          const remoteScreenStreams = { ...state.remoteScreenStreams }
+          if (stream) remoteScreenStreams[uid] = stream
+          else delete remoteScreenStreams[uid]
+          return { remoteScreenStreams }
+        }),
+        onLocalScreenError: (message) => useScreenShareStore.getState().setScreenShareError(message),
         onChange: (peerConnections) => {
           if (currentLease === lease && !lease.finalized) set({ peerConnections })
         },
@@ -120,6 +132,8 @@ export const useRoomStore = create<RoomState>((set, get) => {
       if (existingMicrophoneStream) await lease.peerManager.updateLocalAudioStream(existingMicrophoneStream)
       const existingCameraStream = useVideoStore.getState().cameraStream
       if (existingCameraStream) await lease.peerManager.updateLocalVideoStream(existingCameraStream)
+      const existingScreenStream = useScreenShareStore.getState().screenStream
+      if (existingScreenStream) await lease.peerManager.updateLocalScreenStream(existingScreenStream)
       lease.unsubscribers.push(subscribeToRoomSessionMetadata(lease.roomId, (metadata) => {
         if (!metadata) {
           lease.references = 0
@@ -152,6 +166,7 @@ export const useRoomStore = create<RoomState>((set, get) => {
     activeMembers: [],
     peerConnections: [],
     remoteMediaStreams: {},
+    remoteScreenStreams: {},
     activeRoomStatus: 'idle',
     activeRoomError: null,
     loadFixedRooms: async (force = false) => {
@@ -186,7 +201,7 @@ export const useRoomStore = create<RoomState>((set, get) => {
         await finalizeLease(currentLease)
       }
 
-      set({ activeRoom: null, activeMembers: [], peerConnections: [], remoteMediaStreams: {}, activeRoomStatus: 'joining', activeRoomError: null })
+      set({ activeRoom: null, activeMembers: [], peerConnections: [], remoteMediaStreams: {}, remoteScreenStreams: {}, activeRoomStatus: 'joining', activeRoomError: null })
       const lease: RoomLease = {
         roomId,
         references: 1,
@@ -234,10 +249,19 @@ export const useRoomStore = create<RoomState>((set, get) => {
     setLocalVideoStream: async (stream) => {
       await currentLease?.peerManager?.updateLocalVideoStream(stream)
     },
+    setLocalScreenStream: async (stream) => {
+      await currentLease?.peerManager?.updateLocalScreenStream(stream)
+    },
     deleteFixedRoom: async (roomId) => {
       await deleteFixedRoomService(roomId)
       set((state) => ({ fixedRooms: state.fixedRooms.filter((room) => room.id !== roomId) }))
       if (get().activeRoom?.roomId === roomId) await get().leaveCurrentRoom()
     },
+  }
+})
+
+useScreenShareStore.subscribe((state, previous) => {
+  if (state.screenStream !== previous.screenStream) {
+    void useRoomStore.getState().setLocalScreenStream(state.screenStream)
   }
 })

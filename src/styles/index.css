@@ -227,7 +227,11 @@ a { color: inherit; }
 .preview-pill { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid #34313f; border-radius: 99px; color: #b4a4d8; background: #1b1925; font-size: 11px; white-space: nowrap; }
 .preview-pill i { width: 5px; height: 5px; border-radius: 50%; background: #b49aff; }
 .room-heading-actions { display: flex; align-items: center; gap: 6px; }
+.youtube-toggle-button { gap: 7px; }
+.youtube-brand-icon { width: 17px; height: 17px; fill: #ff4c4c; }
 .room-layout { display: grid; min-height: 530px; grid-template-columns: minmax(0, 1fr) 285px; overflow: hidden; border: 1px solid var(--line); border-radius: 13px; background: #10131b; }
+.room-layout--chat-closed { grid-template-columns: minmax(0, 1fr); }
+.room-layout--chat-closed .room-stage { width: 100%; grid-column: 1 / -1; }
 .room-stage { display: flex; min-width: 0; flex-direction: column; padding: 17px; }
 .stage-topline { display: flex; justify-content: space-between; color: #888e9f; font-size: 12px; }
 .stage-topline > span { display: inline-flex; align-items: center; gap: 6px; }
@@ -243,6 +247,12 @@ a { color: inherit; }
 .participant-video-frame:fullscreen { display: grid; width: 100vw; height: 100vh; place-items: center; background: #05060a; }
 .participant-video-frame:fullscreen .participant-video { position: static; width: 100%; height: 100%; object-fit: contain; }
 .participant-video-error { position: absolute; z-index: 3; right: 8px; bottom: 8px; left: 8px; padding: 6px; border-radius: 5px; color: #fff; background: #321d25e8; font-size: 11px; text-align: center; }
+.screen-share-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 9px; padding-top: 12px; }
+.screen-share-card { min-width: 0; overflow: hidden; border: 1px solid #393248; border-radius: 9px; background: #10121a; }
+.screen-share-title { display: flex; min-height: 32px; align-items: center; gap: 7px; padding: 0 10px; color: #c5b4f5; font-size: 11px; }
+.screen-share-title strong { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.screen-share-view { position: relative; width: 100%; min-height: 145px; aspect-ratio: 16 / 9; overflow: hidden; background: #05060a; }
+.screen-share-view .participant-video { object-fit: contain; }
 .participant-orb { display: grid; width: 73px; height: 73px; place-items: center; border: 1px solid #b9a0ff55; border-radius: 50%; color: #ded1ff; background: linear-gradient(145deg, #604b88, #30283f); box-shadow: 0 0 0 7px #b196f80b, 0 0 40px #8f71cf1e; font-size: 26px; font-weight: 560; }
 .participant-orb--you { position: relative; z-index: 1; }
 .participant-label { position: absolute; right: 10px; bottom: 10px; left: 10px; display: flex; align-items: center; justify-content: space-between; }
@@ -297,6 +307,23 @@ a { color: inherit; }
 .chat-composer .send-button { color: #22202c; background: #a78bfa; }
 .room-preview-notice { padding: 12px 14px; }
 .room-preview-notice p { display: grid; gap: 3px; margin: 0; }
+.youtube-panel { display: grid; gap: 11px; padding: 14px; border: 1px solid #292d39; border-radius: 10px; background: #11141c; }
+.youtube-panel-heading, .youtube-panel-heading > div { display: flex; align-items: center; gap: 9px; }
+.youtube-panel-heading { justify-content: space-between; }
+.youtube-panel-heading > div > svg { color: #ff6868; }
+.youtube-panel-heading span { display: grid; gap: 3px; }
+.youtube-panel-heading strong { color: #d7d8e1; font-size: 13px; }
+.youtube-panel-heading small, .youtube-status { color: #83899a; font-size: 11px; }
+.youtube-url-form { display: flex; gap: 7px; }
+.youtube-url-form input { flex: 1; min-width: 0; padding: 9px 11px; border: 1px solid #303442; border-radius: 7px; outline: 0; color: #d5d7e1; background: #0e1118; }
+.youtube-url-form button, .youtube-start-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px; border: 1px solid #493b55; border-radius: 7px; color: #e2d5fa; background: #251d30; }
+.youtube-player-frame { width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 8px; background: #08090d; }
+.youtube-player-frame > div, .youtube-player-frame iframe { width: 100%; height: 100%; }
+.youtube-start-button { min-height: 32px; justify-self: start; }
+.youtube-error { margin: 0; color: #f0a2ab; font-size: 12px; }
+.youtube-queue-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #a8adbc; font-size: 12px; }
+.youtube-queue-bar > span, .youtube-queue-bar > button { display: inline-flex; align-items: center; gap: 6px; }
+.youtube-queue-bar > button { min-height: 32px; padding: 0 10px; border: 1px solid #493b55; border-radius: 7px; color: #e2d5fa; background: #251d30; }
 
 .settings-page { gap: 22px; }
 .settings-heading { align-items: center; }
@@ -308,6 +335,9 @@ a { color: inherit; }
 .settings-nav-link.is-active svg { color: #b69cf5; }
 .settings-content { display: grid; gap: 12px; }
 .settings-card { padding: 16px; border: 1px solid #292d39; border-radius: 11px; background: #11141c; scroll-margin-top: 82px; }
+.sensitivity-control { display: flex; width: min(240px, 42%); align-items: center; gap: 10px; color: #c7b7f1; font-size: 12px; }
+.sensitivity-control input { width: 100%; accent-color: #a78bfa; }
+.sensitivity-control output { min-width: 42px; text-align: right; }
 .settings-card-heading { display: flex; align-items: center; gap: 10px; padding-bottom: 13px; border-bottom: 1px solid #242834; }
 .settings-card-icon { display: grid; width: 31px; height: 31px; flex: 0 0 auto; place-items: center; border-radius: 9px; color: #adb2c1; background: #949bad16; }
 .settings-card-icon--purple { color: #bba4fa; background: #a78bfa16; }
@@ -367,7 +397,7 @@ a { color: inherit; }
   .welcome-art { width: 235px; transform: scale(.9); transform-origin: center right; }
   .welcome-banner { min-height: 265px; padding-left: 28px; }
   .room-layout { grid-template-columns: minmax(0, 1fr) 220px; }
-  .room-control-bar { gap: 4px; padding: 7px 4px; }
+  .room-control-bar { flex-wrap: wrap; gap: 4px; padding: 7px 4px; }
   .control-button, .leave-button { gap: 5px; padding: 0 7px; }
   .voice-control { gap: 5px; padding: 0 7px; }
 }
@@ -423,6 +453,9 @@ a { color: inherit; }
   .room-heading-actions { gap: 1px; }
   .room-heading-actions .button { min-height: 31px; padding: 0 8px; font-size: 11px; }
   .room-layout { grid-template-columns: 1fr; }
+  .youtube-panel-heading { align-items: flex-start; flex-direction: column; }
+  .youtube-url-form { flex-direction: column; }
+  .youtube-url-form button { min-height: 36px; }
   .room-stage { min-height: 475px; padding: 12px; }
   .participant-grid { min-height: 315px; gap: 7px; padding: 10px 0; }
   .participant-card { min-height: 145px; }

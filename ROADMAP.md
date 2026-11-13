@@ -17,8 +17,8 @@ geliştirmek.
     senkronize izleyebilir.
 -   Host oda adını belirleyebilir ve odayı sabitleyebilir.
 -   Geçici odaların oturum mesajları oda kapandığında temizlenir.
--   Sabit odalar korunur ve davet koduna sahip oturum açmış kullanıcılar
-    katılabilir.
+-   Sabit odalar korunur ve yalnızca daha önce yetkilendirilmiş
+    kullanıcılar tekrar katılabilir.
 -   Sabit odalarda en fazla 100 mesaj tutulur; yeni mesaj geldiğinde en
     eski mesaj çıkarılır.
 
@@ -48,7 +48,7 @@ geliştirmek.
   veri                    Database                geçici mesajlar,
                                                   YouTube durumu
 
-  Kalıcı veri             Cloud Firestore         Sabit oda metaverisi ve
+  Kalıcı veri             Firestore               Sabit oda metaverisi ve
                                                   mesajları
 
   Medya                   Native WebRTC API       P2P ses, kamera ve
@@ -332,12 +332,12 @@ güvenlik kurallarını kurmak.
 signaling. - Geçici oda mesajları. - YouTube senkronizasyon durumu.
 
 **Cloud Firestore** - Kullanıcı profilleri (gereken alanlar). - Sabit
-oda metadata. - Sabit oda mesajları.
+oda metadata. - Sabit oda yetkili üyeleri. - Sabit oda mesajları.
 
 ### Güvenlik kabul kriterleri
 
 -   [ ] Giriş yapmamış kullanıcı özel verileri okuyamıyor.
--   [ ] Oda kodunu bilmeyen kullanıcı oda verisini okuyamıyor.
+-   [ ] Oda üyesi olmayan kullanıcı oda verisini okuyamıyor.
 -   [ ] Host olmayan kullanıcı yönetim alanlarını değiştiremiyor.
 -   [ ] Kullanıcı başka UID adına işlem yapamıyor.
 -   [ ] Rules testleri başarılı.
@@ -374,11 +374,11 @@ oda metadata. - Sabit oda mesajları.
 ### Sabit oda üyeliği
 
 -   [ ] Sabit oda metadata'sını Firestore'da tut.
--   [ ] Oda kodunu sabit odanın davet anahtarı olarak kullan.
--   [ ] Aktif katılımcıları geçmişteki oda oturumlarından ayır.
--   [ ] Oda kodunu bilmeyen kullanıcıların erişimini engelle.
--   [ ] Geçici odayı sabit odaya dönüştürmeyi e-posta hesabı olan host'a
-    sınırla; sabit odalar oluşturulunca otomatik kalıcıdır.
+-   [ ] Önceden yetkilendirilmiş UID'leri kaydet.
+-   [ ] Aktif üyeler ile geçmişte yetkilendirilmiş üyeleri ayır.
+-   [ ] Daha önce katılmamış kullanıcıların erişimini engelle.
+-   [ ] Oda sabitleme ve sabitlemeyi kaldırma işlemlerini host'a
+    sınırla.
 
 ### Host yaşam döngüsü
 
@@ -402,8 +402,8 @@ kullanıcıya açıkla. İstemciye güvenerek güvenlik kuralı gevşetme.
 -   [ ] Beşinci kullanıcı reddediliyor.
 -   [ ] Aynı anda katılma yarışı kapasiteyi aşmıyor.
 -   [ ] Host ayrılma davranışı oda türüne göre doğru.
--   [ ] Aktif sabit odaya davet koduna sahip oturum açmış kullanıcılar katılabiliyor.
--   [ ] Davet kodu olmadan sabit oda ID'si keşfedilemiyor; oda listesi yalnızca sahibine açık.
+-   [ ] Sabit oda geçmiş üyeleri tekrar katılabiliyor.
+-   [ ] Yetkisiz kullanıcı sabit odaya katılamıyor.
 
 **PHASE 04 tamamlanmadan PHASE 05'e geçme.**
 
@@ -482,15 +482,6 @@ bağlantılarını kurmak.
 -   3 katılımcı: 3 peer bağlantısı.
 -   4 katılımcı: 6 peer bağlantısı.
 
-### Offer ve signaling düzeni
-
-Her katılımda istemci yeni bir `connectionId` üretir. Signaling kayıtları
-oda `sessionId`'si, sıralanmış UID çifti ve gönderen bağlantı kimliği
-altında tutulur. UID'si sıralamada önce gelen taraf offer başlatır;
-diğer taraf answer verir. Böylece başlangıçta aynı çift için iki offer
-oluşmaz. Eski oturum veya bağlantı kimliğiyle gelen signaling yok sayılır.
-DataChannel ping/pong testi medya eklemeden P2P veri aktarımını doğrular.
-
 ### Test yaklaşımı
 
 İlk testte gerçek medya yerine `RTCDataChannel` ile basit ping/pong veya
@@ -545,14 +536,6 @@ kurulamadığını göster; başarılıymış gibi davranma.
 -   [ ] Oda çıkışında mikrofon kullanımı bırakılıyor.
 -   [ ] Mikrofon izni reddedilince anlaşılır hata gösteriliyor.
 
-### Ses track düzeni
-
-Her peer bağlantısında ilk WebRTC offer'ından itibaren çift yönlü bir
-audio transceiver ayrılır. Mikrofon açma, kapatma ve cihaz değiştirme
-işlemleri bu transceiver'ın sender track'ini değiştirir; ses verisi
-Realtime Database veya Firestore'a yazılmaz. Mikrofon ve çıkış cihazı
-tercihleri tarayıcıda saklanır.
-
 **PHASE 07 tamamlanmadan PHASE 08'e geçme.**
 
 ------------------------------------------------------------------------
@@ -574,13 +557,6 @@ tercihleri tarayıcıda saklanır.
 -   [ ] Yerel önizleme.
 -   [ ] Video alanı düzeni.
 -   [ ] Oda çıkışında kamera track'lerini durdur.
-
-### Kamera track düzeni
-
-Her peer bağlantısında başlangıç offer'ıyla çift yönlü video
-transceiver'ı ayrılır. Kamera açma, kapatma ve cihaz değiştirme sender
-track'ini değiştirir. Gelen ses ve video track'leri aynı peer medya
-akışında birleştirilir; yerel video önizlemesi sessiz oynatılır.
 
 ### Test ve kabul kriterleri
 

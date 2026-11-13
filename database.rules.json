@@ -26,6 +26,21 @@
             ".validate": "!newData.exists() || (newData.isString() && newData.val().length >= 1 && newData.val().length <= 80)"
           }
         },
+        "youtubeState": {
+          ".read": "auth != null && (root.child('roomSessions').child($roomId).child('activeMembers/0/uid').val() === auth.uid || root.child('roomSessions').child($roomId).child('activeMembers/1/uid').val() === auth.uid || root.child('roomSessions').child($roomId).child('activeMembers/2/uid').val() === auth.uid || root.child('roomSessions').child($roomId).child('activeMembers/3/uid').val() === auth.uid)",
+          ".write": "auth != null && (root.child('roomSessions').child($roomId).child('activeMembers/0/uid').val() === auth.uid || root.child('roomSessions').child($roomId).child('activeMembers/1/uid').val() === auth.uid || root.child('roomSessions').child($roomId).child('activeMembers/2/uid').val() === auth.uid || root.child('roomSessions').child($roomId).child('activeMembers/3/uid').val() === auth.uid)",
+          ".validate": "!newData.exists() || (newData.hasChildren(['videoId', 'playbackState', 'currentTime', 'playbackRate', 'updatedAt', 'controllerUid']) && newData.child('videoId').isString() && newData.child('videoId').val().matches(/^[A-Za-z0-9_-]{11}$/) && (newData.child('playbackState').val() === 'playing' || newData.child('playbackState').val() === 'paused') && newData.child('currentTime').isNumber() && newData.child('currentTime').val() >= 0 && newData.child('playbackRate').isNumber() && newData.child('playbackRate').val() >= 0.25 && newData.child('playbackRate').val() <= 2 && newData.child('updatedAt').isNumber() && newData.child('controllerUid').val() === auth.uid)",
+          "videoId": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z0-9_-]{11}$/)" },
+          "playbackState": { ".validate": "newData.val() === 'playing' || newData.val() === 'paused'" },
+          "currentTime": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+          "playbackRate": { ".validate": "newData.isNumber() && newData.val() >= 0.25 && newData.val() <= 2" },
+          "updatedAt": { ".validate": "newData.isNumber()" },
+          "controllerUid": { ".validate": "newData.val() === auth.uid" },
+          "queue": {
+            "$index": { ".validate": "$index.matches(/^(0|[1-9]|1[0-9])$/) && newData.isString() && newData.val().matches(/^[A-Za-z0-9_-]{11}$/)" }
+          },
+          "$other": { ".validate": false }
+        },
         "activeMembers": {
           ".read": "auth != null && (data.parent().child('metadata').child('type').val() === 'temporary' || root.child('roomAccess').child($roomId).child('type').val() === 'fixed')",
           "$slot": {

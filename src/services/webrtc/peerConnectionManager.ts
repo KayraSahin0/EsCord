@@ -21,6 +21,9 @@ type PeerLink = {
   connectionId: string
   pairId: string
   peerConnection: RTCPeerConnection
+  audioTransceiver: RTCRtpTransceiver
+  cameraTransceiver: RTCRtpTransceiver
+  screenTransceiver: RTCRtpTransceiver
   dataChannel: RTCDataChannel | null
   unsubscribeSignals: Unsubscribe
   cleanupSignals: (() => Promise<void>) | null
@@ -36,7 +39,9 @@ type PeerLink = {
   restartTimer: ReturnType<typeof setTimeout> | null
   connectTimer: ReturnType<typeof setTimeout> | null
   makingOffer: boolean
+  renegotiationPending: boolean
   remoteStream: MediaStream | null
+  remoteScreenStream: MediaStream | null
   closed: boolean
 }
 
@@ -47,12 +52,15 @@ type PeerConnectionManagerOptions = {
   localConnectionId: string
   onChange: (statuses: PeerConnectionStatus[]) => void
   onRemoteStream: (uid: string, stream: MediaStream | null) => void
+  onRemoteScreenStream: (uid: string, stream: MediaStream | null) => void
+  onLocalScreenError: (message: string | null) => void
 }
 
 export type PeerConnectionManager = {
   updatePeers: (members: readonly RoomActiveMember[]) => Promise<void>
   updateLocalAudioStream: (stream: MediaStream | null) => Promise<void>
   updateLocalVideoStream: (stream: MediaStream | null) => Promise<void>
+  updateLocalScreenStream: (stream: MediaStream | null) => Promise<void>
   close: () => Promise<void>
 }
 
@@ -74,6 +82,7 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
   let peers = new Map<string, RoomActiveMember>()
   let localAudioStream: MediaStream | null = null
   let localVideoStream: MediaStream | null = null
+  let localScreenStream: MediaStream | null = null
   let closed = false
 
   function emit() {
@@ -118,11 +127,36 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
     })
   }
 
+  function dispatchPendingNegotiation(link: PeerLink) {
+    if (!link.renegotiationPending || link.closed || links.get(link.uid) !== link) return
+    if (options.localUid.localeCompare(link.uid) < 0) {
+      if (!link.makingOffer && link.peerConnection.signalingState === 'stable') void negotiate(link)
+      return
+    }
+
+    if (link.dataChannel?.readyState === 'open') {
+      try {
+        link.dataChannel.send(JSON.stringify({ type: 'renegotiate' }))
+        link.renegotiationPending = false
+      } catch {
+        // Keep the request pending; the channel open callback or next media update can retry it.
+      }
+    }
+  }
+
+  function requestNegotiation(link: PeerLink) {
+    link.renegotiationPending = true
+    dispatchPendingNegotiation(link)
+  }
+
   async function negotiate(link: PeerLink) {
     if (link.closed || links.get(link.uid) !== link || options.localUid.localeCompare(link.uid) > 0) return
-    if (link.makingOffer) return
-    if (link.peerConnection.signalingState !== 'stable') return
+    if (link.makingOffer || link.peerConnection.signalingState !== 'stable') {
+      link.renegotiationPending = true
+      return
+    }
     link.makingOffer = true
+    link.renegotiationPending = false
     try {
       const offer = await link.peerConnection.createOffer()
       await link.peerConnection.setLocalDescription(offer)
@@ -131,20 +165,22 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
       setState(link, 'failed', error instanceof Error ? error.message : 'WebRTC offer oluşturulamadı.')
     } finally {
       link.makingOffer = false
+      dispatchPendingNegotiation(link)
     }
   }
 
   async function applyLocalMediaTracks(link: PeerLink) {
-    const tracks: Record<'audio' | 'video', MediaStreamTrack | null> = {
-      audio: localAudioStream?.getAudioTracks()[0] ?? null,
-      video: localVideoStream?.getVideoTracks()[0] ?? null,
+    const replacements: Array<[RTCRtpTransceiver, MediaStreamTrack | null]> = [
+      [link.audioTransceiver, localAudioStream?.getAudioTracks()[0] ?? null],
+      [link.cameraTransceiver, localVideoStream?.getVideoTracks()[0] ?? null],
+      [link.screenTransceiver, localScreenStream?.getVideoTracks()[0] ?? null],
+    ]
+    for (const [transceiver, track] of replacements) {
+      if (transceiver.sender.track !== track) await transceiver.sender.replaceTrack(track)
     }
-    for (const transceiver of link.peerConnection.getTransceivers()) {
-      const kind = transceiver.receiver.track.kind
-      if ((kind === 'audio' || kind === 'video') && transceiver.sender.track !== tracks[kind]) {
-        await transceiver.sender.replaceTrack(tracks[kind])
-      }
-    }
+    // replaceTrack alone can leave the remote ontrack event without its stream association.
+    // Preserve the captured MediaStream on the dedicated screen sender as its stream ID.
+    link.screenTransceiver.sender.setStreams(...(localScreenStream ? [localScreenStream] : []))
   }
 
   async function flushCandidates(link: PeerLink) {
@@ -178,10 +214,12 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
           const answer = await link.peerConnection.createAnswer()
           await link.peerConnection.setLocalDescription(answer)
           if (link.peerConnection.localDescription) await sendDescription(link, link.peerConnection.localDescription.toJSON())
+          dispatchPendingNegotiation(link)
         } else if (signal.description.type === 'answer') {
           if (!isOfferer || link.peerConnection.signalingState !== 'have-local-offer') return
           await link.peerConnection.setRemoteDescription(signal.description)
           await flushCandidates(link)
+          dispatchPendingNegotiation(link)
         }
       } else if (signal.kind === 'candidate' && signal.candidate) {
         if (link.peerConnection.remoteDescription) {
@@ -221,12 +259,15 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
     channel.onopen = () => {
       setState(link, 'connecting')
       sendPing(link, channel)
+      dispatchPendingNegotiation(link)
     }
     channel.onmessage = (event) => {
       try {
         const message = JSON.parse(String(event.data)) as { type?: string; id?: string; sentAt?: number }
         if (message.type === 'ping' && message.id && channel.readyState === 'open') {
           channel.send(JSON.stringify({ type: 'pong', id: message.id, sentAt: message.sentAt }))
+        } else if (message.type === 'renegotiate' && options.localUid.localeCompare(link.uid) < 0) {
+          requestNegotiation(link)
         } else if (message.type === 'pong' && message.id === link.pendingPingId && link.pendingPingSentAt !== null) {
           link.roundTripMs = Math.max(0, Date.now() - link.pendingPingSentAt)
           link.pendingPingId = null
@@ -273,10 +314,14 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
     if (!peer.connectionId || closed || links.has(peer.uid)) return
 
     let peerConnection: RTCPeerConnection
+    let audioTransceiver: RTCRtpTransceiver
+    let cameraTransceiver: RTCRtpTransceiver
+    let screenTransceiver: RTCRtpTransceiver
     try {
       peerConnection = new RTCPeerConnection({ iceServers: ICE_SERVERS })
-      peerConnection.addTransceiver('audio', { direction: 'sendrecv' })
-      peerConnection.addTransceiver('video', { direction: 'sendrecv' })
+      audioTransceiver = peerConnection.addTransceiver('audio', { direction: 'sendrecv' })
+      cameraTransceiver = peerConnection.addTransceiver('video', { direction: 'sendrecv' })
+      screenTransceiver = peerConnection.addTransceiver('video', { direction: 'sendrecv' })
     } catch {
       options.onChange([
         ...[...peers.values()].filter((member) => member.uid !== options.localUid && !links.has(member.uid))
@@ -291,6 +336,9 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
       connectionId: peer.connectionId,
       pairId: pairId(options.localUid, peer.uid),
       peerConnection,
+      audioTransceiver,
+      cameraTransceiver,
+      screenTransceiver,
       dataChannel: null,
       unsubscribeSignals: () => undefined,
       cleanupSignals: null,
@@ -304,7 +352,9 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
       restartTimer: null,
       connectTimer: null,
       makingOffer: false,
+      renegotiationPending: false,
       remoteStream: null,
+      remoteScreenStream: null,
       closed: false,
     }
     links.set(peer.uid, link)
@@ -343,6 +393,27 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
     peerConnection.onnegotiationneeded = () => { void negotiate(link) }
     peerConnection.ontrack = (event) => {
       if (link.closed || links.get(link.uid) !== link) return
+      const screenMid = link.screenTransceiver.mid
+      const isScreenTransceiver = event.transceiver === link.screenTransceiver
+        || (screenMid !== null && event.transceiver.mid === screenMid)
+      if (isScreenTransceiver) {
+        // Prefer the stream association from SDP and retain a fallback for browsers that omit it.
+        const remoteStream = event.streams[0] ?? link.remoteScreenStream ?? new MediaStream()
+        link.remoteScreenStream = remoteStream
+        if (!remoteStream.getTracks().some((track) => track.id === event.track.id)) remoteStream.addTrack(event.track)
+        const publishRemoteScreen = () => {
+          const liveTracks = link.remoteScreenStream?.getVideoTracks().filter((track) => track.readyState === 'live') ?? []
+          options.onRemoteScreenStream(link.uid, liveTracks.length ? new MediaStream(liveTracks) : null)
+        }
+        event.track.onunmute = publishRemoteScreen
+        event.track.onmute = publishRemoteScreen
+        event.track.onended = () => {
+          link.remoteScreenStream?.removeTrack(event.track)
+          publishRemoteScreen()
+        }
+        publishRemoteScreen()
+        return
+      }
       if (!link.remoteStream) link.remoteStream = new MediaStream()
       if (!link.remoteStream.getTracks().some((track) => track.id === event.track.id)) {
         link.remoteStream.addTrack(event.track)
@@ -400,6 +471,7 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
     if (link.connectTimer) clearTimeout(link.connectTimer)
     link.unsubscribeSignals()
     options.onRemoteStream(link.uid, null)
+    options.onRemoteScreenStream(link.uid, null)
     link.dataChannel?.close()
     link.peerConnection.close()
     try {
@@ -440,6 +512,19 @@ export function createPeerConnectionManager(options: PeerConnectionManagerOption
           await applyLocalMediaTracks(link)
         } catch (error) {
           setState(link, 'failed', error instanceof Error ? error.message : 'Kamera track’i peer bağlantısına eklenemedi.')
+        }
+      }))
+    },
+    updateLocalScreenStream: async (stream) => {
+      localScreenStream = stream
+      options.onLocalScreenError(null)
+      await Promise.all([...links.values()].map(async (link) => {
+        try {
+          await applyLocalMediaTracks(link)
+          requestNegotiation(link)
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : 'Bilinmeyen WebRTC hatası'
+          if (localScreenStream === stream && stream) options.onLocalScreenError(`Ekran karşı tarafa gönderilemedi: ${reason}`)
         }
       }))
     },

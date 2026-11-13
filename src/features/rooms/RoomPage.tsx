@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { ArrowLeft, Camera, CameraOff, Check, Copy, LockKeyhole, Mic, MicOff, Send, ShieldCheck, UsersRound } from 'lucide-react'
+import { ArrowLeft, Camera, CameraOff, Check, Copy, LockKeyhole, MessageCircle, Mic, MicOff, MonitorStop, MonitorUp, Send, ShieldCheck, UsersRound } from 'lucide-react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { useAuthStore } from '../../stores/authStore'
@@ -12,6 +12,8 @@ import { RemoteAudioPlayer } from './RemoteAudioPlayer'
 import { ParticipantVideo } from './ParticipantVideo'
 import { setActiveRoomCamera, setActiveRoomMicrophone } from '../../services/firebase/realtimeDatabaseService'
 import { useVideoStore } from '../../stores/videoStore'
+import { useScreenShareStore } from '../../stores/screenShareStore'
+import { YoutubePanel } from './YoutubePanel'
 
 export function RoomPage() {
   const { roomId = '' } = useParams()
@@ -22,6 +24,7 @@ export function RoomPage() {
   const members = useRoomStore((state) => state.activeMembers)
   const peerConnections = useRoomStore((state) => state.peerConnections)
   const remoteMediaStreams = useRoomStore((state) => state.remoteMediaStreams)
+  const remoteScreenStreams = useRoomStore((state) => state.remoteScreenStreams)
   const setLocalAudioStream = useRoomStore((state) => state.setLocalAudioStream)
   const setLocalVideoStream = useRoomStore((state) => state.setLocalVideoStream)
   const microphoneStream = useAudioStore((state) => state.microphoneStream)
@@ -32,12 +35,18 @@ export function RoomPage() {
   const cameraError = useVideoStore((state) => state.cameraError)
   const startCamera = useVideoStore((state) => state.startCamera)
   const stopCamera = useVideoStore((state) => state.stopCamera)
+  const screenStream = useScreenShareStore((state) => state.screenStream)
+  const screenShareError = useScreenShareStore((state) => state.screenShareError)
+  const startScreenShare = useScreenShareStore((state) => state.startScreenShare)
+  const stopScreenShare = useScreenShareStore((state) => state.stopScreenShare)
   const status = useRoomStore((state) => state.activeRoomStatus)
   const error = useRoomStore((state) => state.activeRoomError)
   const leave = useRoomStore((state) => state.leaveCurrentRoom)
   const pin = useRoomStore((state) => state.pinCurrentRoom)
   const [actionError, setActionError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [youtubeOpen, setYoutubeOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(true)
   const [chatState, setChatState] = useState<{ key: string; messages: ChatMessage[] }>({ key: '', messages: [] })
   const [draft, setDraft] = useState('')
   const [chatError, setChatError] = useState<string | null>(null)
@@ -47,6 +56,15 @@ export function RoomPage() {
   const messages = chatState.key === chatRoomKey ? chatState.messages : []
   const activeRoomId = room?.roomId
   const activeConnectionId = room?.connectionId
+  const screenShares = [
+    ...(screenStream ? [{ uid: profile?.uid ?? 'local', nickname: profile?.nickname ?? 'Sen', stream: screenStream, isLocal: true }] : []),
+    ...members.flatMap((member) => {
+      const stream = remoteScreenStreams[member.uid]
+      return member.uid !== profile?.uid && stream?.getVideoTracks().some((track) => track.readyState === 'live')
+        ? [{ uid: member.uid, nickname: member.nickname, stream, isLocal: false }]
+        : []
+    }),
+  ]
 
   useEffect(() => {
     void setLocalAudioStream(microphoneStream)
@@ -92,6 +110,7 @@ export function RoomPage() {
   async function leaveRoom() {
     stopMicrophone()
     stopCamera()
+    stopScreenShare()
     await leave()
     navigate('/')
   }
@@ -120,9 +139,21 @@ export function RoomPage() {
     }
   }
 
+  async function toggleScreenShare() {
+    if (screenStream) {
+      stopScreenShare()
+      return
+    }
+    try {
+      await startScreenShare()
+    } catch {
+      // The screen share store exposes a user-facing permission/device error.
+    }
+  }
+
   async function copyInvite() {
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}/rooms/${roomId}`)
+      await navigator.clipboard.writeText(`${window.location.origin}${import.meta.env.BASE_URL}#/rooms/${roomId}`)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1800)
     } catch {
@@ -172,13 +203,21 @@ export function RoomPage() {
         </div>
         <div className="room-heading-actions">
           <Button icon={<Copy size={15} />} onClick={() => void copyInvite()} variant="secondary">{copied ? 'Kopyalandı' : 'Davet bağlantısı'}</Button>
+          <Button aria-expanded={youtubeOpen} aria-label={youtubeOpen ? 'YouTube panelini kapat' : 'YouTube panelini aç'} className="youtube-toggle-button" icon={<svg aria-hidden="true" className="youtube-brand-icon" viewBox="0 0 24 24"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.6 12 3.6 12 3.6s-7.5 0-9.4.5A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8ZM9.6 15.6V8.4l6.2 3.6-6.2 3.6Z" /></svg>} onClick={() => setYoutubeOpen((open) => !open)} variant="secondary">YouTube</Button>
+          <Button aria-expanded={chatOpen} aria-label={chatOpen ? 'Sohbeti kapat' : 'Sohbeti aç'} icon={<MessageCircle size={15} />} onClick={() => setChatOpen((open) => !open)} variant="secondary">{chatOpen ? 'Sohbeti kapat' : 'Sohbeti aç'}</Button>
           {isHost && room.metadata.type === 'temporary' && !isAnonymous && <Button icon={<LockKeyhole size={15} />} onClick={() => void togglePin()} variant="secondary">Sabitle</Button>}
         </div>
       </div>
 
-      <div className="room-layout">
+      <div className={`room-layout${chatOpen ? '' : ' room-layout--chat-closed'}`}>
         <section aria-label="Katılımcılar" className="room-stage">
           <div className="stage-topline"><span><span className="stage-live-dot" /> ODA OTURUMU</span><span><UsersRound size={14} /> {members.length} / 4 kişi</span></div>
+          {screenShares.length > 0 && <div aria-label="Ekran paylaşımı" className="screen-share-grid">
+            {screenShares.map((share) => <article className="screen-share-card" key={share.uid}>
+              <div className="screen-share-title"><MonitorUp size={14} /><strong>{share.isLocal ? 'Ekranını paylaşıyorsun' : `${share.nickname} ekranını paylaşıyor`}</strong></div>
+              <div className="screen-share-view"><ParticipantVideo initial={getNicknameInitial(share.nickname)} label={`${share.nickname} ekranı`} showVideo stream={share.stream} /></div>
+            </article>)}
+          </div>}
           <div className="participant-grid">
             {members.map((member) => {
               const host = member.uid === room.metadata.hostUid
@@ -209,15 +248,19 @@ export function RoomPage() {
             <button aria-pressed={!!cameraStream} className={`voice-control${cameraStream ? ' voice-control--active' : ''}`} onClick={() => void toggleCamera()} type="button">
               {cameraStream ? <Camera size={18} /> : <CameraOff size={18} />}<span>{cameraStream ? 'Kamera açık' : 'Kamera kapalı'}</span>
             </button>
+            <button aria-pressed={!!screenStream} className={`voice-control${screenStream ? ' voice-control--active' : ''}`} onClick={() => void toggleScreenShare()} type="button">
+              {screenStream ? <MonitorStop size={18} /> : <MonitorUp size={18} />}<span>{screenStream ? 'Paylaşımı durdur' : 'Ekran paylaş'}</span>
+            </button>
             <span className="control-divider" />
             <button className="leave-button" onClick={() => void leaveRoom()} type="button"><ArrowLeft size={16} /><span>Odadan ayrıl</span></button>
           </div>
           {microphoneError && <p className="auth-form-error room-microphone-error" role="alert">{microphoneError}</p>}
           {cameraError && <p className="auth-form-error room-microphone-error" role="alert">{cameraError}</p>}
+          {screenShareError && <p className="auth-form-error room-microphone-error" role="alert">{screenShareError}</p>}
           <p className="stage-footnote"><span className="stage-lock"><ShieldCheck size={14} /></span>{peerConnections.some((connection) => connection.state === 'connected') ? 'Ses ve görüntü peer cihazlarına P2P aktarılır; Firebase medya taşımaz.' : 'Medya gönderimi için önce diğer katılımcıyla P2P bağlantısı kuruluyor.'}</p>
         </section>
 
-        <aside aria-label="Oda sohbeti" className="chat-panel">
+        {chatOpen && <aside aria-label="Oda sohbeti" className="chat-panel">
           <div className="chat-panel-heading"><div><h2>Sohbet</h2><span>{room.metadata.type === 'fixed' ? 'Son 100 mesaj saklanır' : 'Geçici oda mesajları'}</span></div><LockKeyhole size={16} /></div>
           <div aria-live="polite" className="chat-message-list" role="log">
             {messages.length === 0 && <div className="chat-empty-state"><span className="chat-empty-icon"><Send size={19} /></span><strong>Henüz mesaj yok</strong><p>İlk mesajı göndererek sohbeti başlat.</p></div>}
@@ -240,10 +283,12 @@ export function RoomPage() {
             {actionError && <p className="auth-form-error" role="alert">{actionError}</p>}
             <p className="room-info-note"><Check size={14} /> {room.metadata.type === 'fixed' ? 'Oda koduna sahip oturum açmış kullanıcılar katılabilir. Host yeniden katılana kadar oda kapalıdır.' : 'Geçici oda host ayrılınca kapanır.'}</p>
           </div>
-        </aside>
+        </aside>}
       </div>
 
-      <section className="room-preview-notice"><span className="preview-note-icon"><Camera size={17} /></span><p><strong>Ses ve kamera etkin</strong><span>Mikrofon ve kamera izinlerini oda kontrollerinden yönetebilirsin. Ekran paylaşımı sonraki aşamada gelecek.</span></p><span className="preview-note-mark">PHASE 08</span></section>
+      {youtubeOpen && profile?.uid && <YoutubePanel isHost={isHost} roomId={roomId} uid={profile.uid} />}
+
+      <section className="room-preview-notice"><span className="preview-note-icon"><MonitorUp size={17} /></span><p><strong>Ekran paylaşımı P2P ile aktarılır</strong><span>Ekran, kamera ve mikrofon ayrı akışlardır. Tarayıcının paylaşım çubuğundan durdurman da algılanır.</span></p><span className="preview-note-mark">PHASE 09</span></section>
     </div>
   )
 }

@@ -43,6 +43,16 @@ export type RoomActiveMember = {
   cameraEnabled?: boolean
 }
 
+export type RoomYoutubeState = {
+  videoId: string
+  playbackState: 'playing' | 'paused'
+  currentTime: number
+  playbackRate: number
+  updatedAt: number
+  controllerUid: string
+  queue?: string[]
+}
+
 export type FixedRoomSummary = FixedRoomDocument & { id: string }
 
 export type RealtimePresenceRecord = {

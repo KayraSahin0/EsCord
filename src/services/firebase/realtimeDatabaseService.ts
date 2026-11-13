@@ -13,7 +13,7 @@ import {
 } from '@firebase/database'
 import { firebaseApp, firebaseAuth, firebaseDatabaseURL } from './app'
 import { requireFirebaseService, wrapFirebaseError } from './firebaseError'
-import type { RoomAccessMirror, RoomActiveMember, RoomSessionMetadata, RoomType } from './models'
+import type { RoomAccessMirror, RoomActiveMember, RoomSessionMetadata, RoomType, RoomYoutubeState } from './models'
 
 export const firebaseDatabase = firebaseApp && firebaseDatabaseURL
   ? getDatabase(firebaseApp, firebaseDatabaseURL)
@@ -314,6 +314,86 @@ export function subscribeToRoomSession<T>(
   } catch (error) {
     onError(wrapFirebaseError('realtime-database', 'subscribe-room-session', error))
     return () => undefined
+  }
+}
+
+export function subscribeToYoutubeState(
+  roomId: string,
+  onValueChange: (state: RoomYoutubeState | null) => void,
+  onError: (error: Error) => void,
+): Unsubscribe {
+  try {
+    return onValue(
+      ref(requireFirebaseService(firebaseDatabase, 'realtime-database'), `roomSessions/${roomId}/youtubeState`),
+      (snapshot) => onValueChange(snapshot.exists() ? snapshot.val() as RoomYoutubeState : null),
+      (error) => onError(wrapFirebaseError('realtime-database', 'subscribe-youtube-state', error)),
+    )
+  } catch (error) {
+    onError(wrapFirebaseError('realtime-database', 'subscribe-youtube-state', error))
+    return () => undefined
+  }
+}
+
+export async function publishYoutubeState(roomId: string, state: Omit<RoomYoutubeState, 'updatedAt'>): Promise<void> {
+  try {
+    await set(ref(requireFirebaseService(firebaseDatabase, 'realtime-database'), `roomSessions/${roomId}/youtubeState`), {
+      ...state,
+      updatedAt: serverTimestamp(),
+    })
+  } catch (error) {
+    throw wrapFirebaseError('realtime-database', 'publish-youtube-state', error)
+  }
+}
+
+export async function queueYoutubeVideo(roomId: string, videoId: string, uid: string): Promise<void> {
+  const database = requireFirebaseService(firebaseDatabase, 'realtime-database')
+  try {
+    const result = await runTransaction(ref(database, `roomSessions/${roomId}/youtubeState`), (currentValue) => {
+      const current = currentValue as RoomYoutubeState | null
+      if (!current?.videoId) {
+        return { videoId, playbackState: 'playing', currentTime: 0, playbackRate: 1, updatedAt: Date.now(), controllerUid: uid }
+      }
+      const queue = Array.isArray(current.queue) ? current.queue : current.queue ? Object.values(current.queue) : []
+      if (queue.length >= 20) return
+      const currentTime = current.playbackState === 'playing'
+        ? current.currentTime + Math.max(0, Date.now() - current.updatedAt) / 1000 * current.playbackRate
+        : current.currentTime
+      return {
+        ...current,
+        currentTime,
+        updatedAt: Date.now(),
+        controllerUid: uid,
+        queue: [...queue, videoId],
+      }
+    }, { applyLocally: false })
+    if (!result.committed) throw new Error('Video kuyruğu dolu veya oda oynatma durumu değişti.')
+  } catch (error) {
+    throw wrapFirebaseError('realtime-database', 'queue-youtube-video', error)
+  }
+}
+
+export async function advanceYoutubeQueue(roomId: string, uid: string): Promise<void> {
+  const database = requireFirebaseService(firebaseDatabase, 'realtime-database')
+  try {
+    const result = await runTransaction(ref(database, `roomSessions/${roomId}/youtubeState`), (currentValue) => {
+      const current = currentValue as RoomYoutubeState | null
+      const queue = Array.isArray(current?.queue) ? current.queue : current?.queue ? Object.values(current.queue) : []
+      if (!current?.videoId || queue.length === 0) return
+      const [videoId, ...remaining] = queue
+      return {
+        ...current,
+        videoId,
+        playbackState: 'playing',
+        currentTime: 0,
+        playbackRate: 1,
+        updatedAt: Date.now(),
+        controllerUid: uid,
+        ...(remaining.length ? { queue: remaining } : { queue: null }),
+      }
+    }, { applyLocally: false })
+    if (!result.committed) throw new Error('Sırada oynatılacak video yok.')
+  } catch (error) {
+    throw wrapFirebaseError('realtime-database', 'advance-youtube-queue', error)
   }
 }
 

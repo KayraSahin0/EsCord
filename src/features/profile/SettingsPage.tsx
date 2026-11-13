@@ -18,10 +18,12 @@ export function SettingsPage() {
   const outputDevices = useAudioStore((state) => state.outputDevices)
   const inputDeviceId = useAudioStore((state) => state.inputDeviceId)
   const outputDeviceId = useAudioStore((state) => state.outputDeviceId)
+  const microphoneSensitivity = useAudioStore((state) => state.microphoneSensitivity)
   const microphoneError = useAudioStore((state) => state.microphoneError)
   const enumerateDevices = useAudioStore((state) => state.enumerateDevices)
   const setInputDeviceId = useAudioStore((state) => state.setInputDeviceId)
   const setOutputDeviceId = useAudioStore((state) => state.setOutputDeviceId)
+  const setMicrophoneSensitivity = useAudioStore((state) => state.setMicrophoneSensitivity)
   const cameraDevices = useVideoStore((state) => state.cameraDevices)
   const cameraDeviceId = useVideoStore((state) => state.cameraDeviceId)
   const cameraError = useVideoStore((state) => state.cameraError)
@@ -98,6 +100,7 @@ export function SettingsPage() {
               <option value="">Varsayılan hoparlör</option>
               {outputDevices.map((device, index) => <option key={device.deviceId || `output-${index}`} value={device.deviceId}>{device.label || `Hoparlör ${index + 1}`}</option>)}
             </select></div>
+            <div className="settings-line"><div><strong>Mikrofon hassasiyeti</strong><span>Mikrofon sesine uygulanan kazancı ayarla.</span></div><label className="sensitivity-control"><input aria-label="Mikrofon hassasiyeti" max="200" min="0" onChange={(event) => setMicrophoneSensitivity(Number(event.target.value))} step="5" type="range" value={microphoneSensitivity} /><output>{microphoneSensitivity}%</output></label></div>
             <div className="settings-line"><div><strong>Kamera</strong><span>Kamera cihazını değiştirmek açık kamerayı yeniden başlatır.</span></div><select aria-label="Kamera cihazı" className="device-select" onChange={(event) => void setCameraDeviceId(event.target.value)} value={cameraDeviceId}>
               <option value="">Varsayılan kamera</option>
               {cameraDevices.map((device, index) => <option key={device.deviceId || `camera-${index}`} value={device.deviceId}>{device.label || `Kamera ${index + 1}`}</option>)}

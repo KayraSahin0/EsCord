@@ -5,6 +5,7 @@ type AudioDeviceState = {
   outputDevices: MediaDeviceInfo[]
   inputDeviceId: string
   outputDeviceId: string
+  microphoneSensitivity: number
   microphoneStream: MediaStream | null
   microphoneError: string | null
   remoteVolumes: Record<string, number>
@@ -13,14 +14,26 @@ type AudioDeviceState = {
   stopMicrophone: () => void
   setInputDeviceId: (deviceId: string) => Promise<void>
   setOutputDeviceId: (deviceId: string) => void
+  setMicrophoneSensitivity: (sensitivity: number) => void
   setRemoteVolume: (uid: string, volume: number) => void
 }
 
 const INPUT_KEY = 'escord.audio.input-device'
 const OUTPUT_KEY = 'escord.audio.output-device'
+const SENSITIVITY_KEY = 'escord.audio.sensitivity'
+let microphoneSource: MediaStream | null = null
+let microphoneContext: AudioContext | null = null
+let microphoneGain: GainNode | null = null
 
 function readPreference(key: string): string {
   try { return localStorage.getItem(key) ?? '' } catch { return '' }
+}
+
+function readSensitivity(): number {
+  const stored = readPreference(SENSITIVITY_KEY)
+  if (!stored) return 100
+  const parsed = Number(stored)
+  return Number.isFinite(parsed) ? Math.min(200, Math.max(0, parsed)) : 100
 }
 
 async function requestMicrophone(deviceId: string): Promise<MediaStream> {
@@ -46,6 +59,7 @@ export const useAudioStore = create<AudioDeviceState>((set, get) => ({
   outputDevices: [],
   inputDeviceId: readPreference(INPUT_KEY),
   outputDeviceId: readPreference(OUTPUT_KEY),
+  microphoneSensitivity: readSensitivity(),
   microphoneStream: null,
   microphoneError: null,
   remoteVolumes: {},
@@ -62,11 +76,35 @@ export const useAudioStore = create<AudioDeviceState>((set, get) => ({
     }
   },
   startMicrophone: async () => {
-    const oldStream = get().microphoneStream
     set({ microphoneError: null })
     try {
-      const stream = await requestMicrophone(get().inputDeviceId)
-      oldStream?.getTracks().forEach((track) => track.stop())
+      const sourceStream = await requestMicrophone(get().inputDeviceId)
+      let stream = sourceStream
+      let nextContext: AudioContext | null = null
+      let nextGain: GainNode | null = null
+      if (window.AudioContext) {
+        try {
+          nextContext = new AudioContext()
+          const source = nextContext.createMediaStreamSource(sourceStream)
+          nextGain = nextContext.createGain()
+          nextGain.gain.value = get().microphoneSensitivity / 100
+          const destination = nextContext.createMediaStreamDestination()
+          source.connect(nextGain).connect(destination)
+          stream = destination.stream
+          await nextContext.resume()
+        } catch {
+          await nextContext?.close()
+          nextContext = null
+          nextGain = null
+          stream = sourceStream
+        }
+      }
+      get().microphoneStream?.getTracks().forEach((track) => track.stop())
+      microphoneSource?.getTracks().forEach((track) => track.stop())
+      if (microphoneContext && microphoneContext !== nextContext) void microphoneContext.close()
+      microphoneSource = sourceStream
+      microphoneContext = nextContext
+      microphoneGain = nextGain
       set({ microphoneStream: stream, microphoneError: null })
       await get().enumerateDevices()
     } catch (error) {
@@ -76,6 +114,11 @@ export const useAudioStore = create<AudioDeviceState>((set, get) => ({
   },
   stopMicrophone: () => {
     get().microphoneStream?.getTracks().forEach((track) => track.stop())
+    microphoneSource?.getTracks().forEach((track) => track.stop())
+    if (microphoneContext) void microphoneContext.close()
+    microphoneSource = null
+    microphoneContext = null
+    microphoneGain = null
     set({ microphoneStream: null, microphoneError: null })
   },
   setInputDeviceId: async (deviceId) => {
@@ -95,6 +138,12 @@ export const useAudioStore = create<AudioDeviceState>((set, get) => ({
   setOutputDeviceId: (deviceId) => {
     try { localStorage.setItem(OUTPUT_KEY, deviceId) } catch { /* Device preference remains in memory. */ }
     set({ outputDeviceId: deviceId })
+  },
+  setMicrophoneSensitivity: (sensitivity) => {
+    const value = Math.min(200, Math.max(0, Math.round(sensitivity)))
+    try { localStorage.setItem(SENSITIVITY_KEY, String(value)) } catch { /* Keep the preference in memory. */ }
+    if (microphoneGain) microphoneGain.gain.setTargetAtTime(value / 100, microphoneContext?.currentTime ?? 0, 0.015)
+    set({ microphoneSensitivity: value })
   },
   setRemoteVolume: (uid, volume) => set((state) => ({
     remoteVolumes: { ...state.remoteVolumes, [uid]: Math.min(1, Math.max(0, volume)) },

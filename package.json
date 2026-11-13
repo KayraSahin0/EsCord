@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run tests/nickname.test.ts tests/firebaseError.test.ts",
+    "test": "vitest run tests/nickname.test.ts tests/firebaseError.test.ts tests/youtubeUtils.test.ts",
     "test:rules": "firebase emulators:exec --project demo-escord --only firestore,database \"npm run test:rules:unit\"",
     "test:rules:unit": "vitest run tests/firebaseRules.test.ts"
   },

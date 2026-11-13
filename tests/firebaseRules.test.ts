@@ -120,6 +120,24 @@ describe('Firebase Security Rules emülatör testleri', () => {
     await assertSucceeds(set(ref(passwordContext('host').database(), `roomAccess/${roomId}/members/guest`), true))
   })
 
+  it('YouTube video seçimini aktif oda üyelerine açar ve oda dışındakileri reddeder', async () => {
+    await seedRoomData()
+    const host = passwordContext('host').database()
+    const member = testEnvironment.authenticatedContext('member').database()
+    const stranger = testEnvironment.authenticatedContext('stranger').database()
+    const state = {
+      videoId: 'dQw4w9WgXcQ', playbackState: 'playing', currentTime: 12,
+      playbackRate: 1, updatedAt: Date.now(), controllerUid: 'host',
+    }
+    await assertSucceeds(set(ref(host, `roomSessions/${roomId}/youtubeState`), state))
+    await assertSucceeds(get(ref(member, `roomSessions/${roomId}/youtubeState`)))
+    await assertSucceeds(set(ref(member, `roomSessions/${roomId}/youtubeState`), { ...state, currentTime: 24, controllerUid: 'member' }))
+    await assertSucceeds(set(ref(member, `roomSessions/${roomId}/youtubeState`), { ...state, controllerUid: 'member', queue: ['9bZkp7q19f0'] }))
+    await assertFails(set(ref(stranger, `roomSessions/${roomId}/youtubeState`), { ...state, controllerUid: 'stranger' }))
+    await assertFails(set(ref(host, `roomSessions/${roomId}/youtubeState`), { ...state, videoId: 'invalid' }))
+    await assertFails(set(ref(member, `roomSessions/${roomId}/youtubeState`), { ...state, controllerUid: 'member', queue: ['invalid'] }))
+  })
+
   it('aktif katılımcı yalnızca kendi mikrofon ve kamera durumunu boolean olarak günceller', async () => {
     await seedRoomData()
     const member = testEnvironment.authenticatedContext('member').database()
